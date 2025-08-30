@@ -24,7 +24,7 @@ case "$ARCH" in
         # For x86_64, modify ldconfig to handle x86-64 libraries
         LDCONFIG_MOD=true
         PIP_COMMAND="pip3"
-        TINYIPA_PYTHON_EXE="python3"
+        TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3}"
         ;;
     "aarch64"|"arm64")
         TC_ARCH="aarch64"
@@ -32,7 +32,7 @@ case "$ARCH" in
         VMLINUZ_NAME="vmlinuz64"
         # For arm64, ldconfig modification is not needed
         LDCONFIG_MOD=false
-        TINYIPA_PYTHON_EXE="python3"
+        TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3}"
         PIP_COMMAND="$TINYIPA_PYTHON_EXE -m pip"
         ;;
     *)

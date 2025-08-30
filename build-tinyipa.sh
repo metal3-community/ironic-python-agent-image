@@ -14,7 +14,7 @@ case "$ARCH" in
         CORE_NAME="corepure64"
         VMLINUZ_NAME="vmlinuz64"
         TC_RELEASE="16.x"
-        TINYIPA_PYTHON_EXE="python3.9"
+        TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3.9}"
         PY_REQS="buildreqs_python3.lst"
         ;;
     "aarch64"|"arm64")
@@ -22,7 +22,7 @@ case "$ARCH" in
         CORE_NAME="corepure64"
         VMLINUZ_NAME="vmlinuz64"
         TC_RELEASE="16.x"
-        TINYIPA_PYTHON_EXE="python3.11"
+        TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3.11}"
         PY_REQS="buildreqs_python3_arm64.lst"
         ;;
     *)
