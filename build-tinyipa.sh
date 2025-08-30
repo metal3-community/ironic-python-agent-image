@@ -120,8 +120,90 @@ fi
 choose_tc_mirror
 
 cd $WORKDIR/build_files
-download_with_retry "$TINYCORE_MIRROR_URL/$TC_RELEASE/$TC_ARCH/release/distribution_files/${CORE_NAME}.gz" "${CORE_NAME}.gz"
-download_with_retry "$TINYCORE_MIRROR_URL/$TC_RELEASE/$TC_ARCH/release/distribution_files/${VMLINUZ_NAME}" "${VMLINUZ_NAME}"
+
+case "$ARCH" in
+    "aarch64"|"arm64")
+        # For ARM64, download piCore image and extract components
+        echo "Downloading piCore image for ARM64..."
+        PICORE_VERSION="16.0.0"
+        PICORE_IMG_URL="http://tinycorelinux.net/16.x/aarch64/release/RPi/piCore64-${PICORE_VERSION}.img.gz"
+        
+        # Download the compressed image
+        download_with_retry "$PICORE_IMG_URL" "piCore64-${PICORE_VERSION}.img.gz"
+        
+        # Extract the image
+        echo "Extracting piCore image..."
+        gunzip -f "piCore64-${PICORE_VERSION}.img.gz"
+        
+        # Mount the image to extract rootfs and kernel
+        echo "Mounting piCore image to extract components..."
+        LOOP_DEVICE=$(sudo losetup -f --show "piCore64-${PICORE_VERSION}.img")
+        sudo partprobe "$LOOP_DEVICE"
+        
+        # Create mount points
+        mkdir -p /tmp/picore_boot /tmp/picore_root
+        
+        # Mount boot partition (first partition) to get kernel
+        sudo mount "${LOOP_DEVICE}p1" /tmp/picore_boot
+        
+        # Mount root partition (second partition) to get rootfs
+        sudo mount "${LOOP_DEVICE}p2" /tmp/picore_root
+        
+        # Extract kernel - find the kernel file (may be kernel*.img or vmlinuz*)
+        KERNEL_FILE=""
+        for f in /tmp/picore_boot/kernel*.img; do
+            if [ -f "$f" ]; then
+                KERNEL_FILE="$f"
+                break
+            fi
+        done
+        
+        if [ -z "$KERNEL_FILE" ]; then
+            for f in /tmp/picore_boot/vmlinuz*; do
+                if [ -f "$f" ]; then
+                    KERNEL_FILE="$f"
+                    break
+                fi
+            done
+        fi
+        
+        if [ -z "$KERNEL_FILE" ]; then
+            echo "ERROR: Could not find kernel file in boot partition"
+            sudo ls -la /tmp/picore_boot/
+            exit 1
+        fi
+        
+        sudo cp "$KERNEL_FILE" "${VMLINUZ_NAME}"
+        
+        # Ensure we have proper permissions on the kernel file
+        sudo chown "$(whoami):$(whoami)" "${VMLINUZ_NAME}"
+        
+        # Create rootfs archive from mounted root partition
+        echo "Creating rootfs archive..."
+        ( cd /tmp/picore_root && sudo find . | sudo cpio -o -H newc | gzip -9 > "$WORKDIR/build_files/${CORE_NAME}.gz" )
+        
+        # Ensure proper permissions on the rootfs file
+        sudo chown "$(whoami):$(whoami)" "$WORKDIR/build_files/${CORE_NAME}.gz"
+        
+        # Cleanup mounts
+        echo "Cleaning up mounts..."
+        sudo umount /tmp/picore_boot || true
+        sudo umount /tmp/picore_root || true
+        sudo losetup -d "$LOOP_DEVICE" || true
+        rmdir /tmp/picore_boot /tmp/picore_root || true
+        
+        # Remove the image file to save space
+        rm -f "piCore64-${PICORE_VERSION}.img"
+        
+        echo "ARM64 piCore extraction completed successfully"
+        ;;
+    *)
+        # For x86_64, use the traditional method
+        download_with_retry "$TINYCORE_MIRROR_URL/$TC_RELEASE/$TC_ARCH/release/distribution_files/${CORE_NAME}.gz" "${CORE_NAME}.gz"
+        download_with_retry "$TINYCORE_MIRROR_URL/$TC_RELEASE/$TC_ARCH/release/distribution_files/${VMLINUZ_NAME}" "${VMLINUZ_NAME}"
+        ;;
+esac
+
 cd $WORKDIR
 
 ########################################################
