@@ -14,12 +14,16 @@ case "$ARCH" in
         CORE_NAME="corepure64"
         VMLINUZ_NAME="vmlinuz64"
         TC_RELEASE="16.x"
+        TINYIPA_PYTHON_EXE="python3.9"
+        PY_REQS="buildreqs_python3.lst"
         ;;
     "aarch64"|"arm64")
         TC_ARCH="aarch64"
         CORE_NAME="corepure64"
         VMLINUZ_NAME="vmlinuz64"
         TC_RELEASE="16.x"
+        TINYIPA_PYTHON_EXE="python3.11"
+        PY_REQS="buildreqs_python3_arm64.lst"
         ;;
     *)
         echo "Unsupported architecture: $ARCH"
@@ -337,15 +341,13 @@ cp $WORKDIR/build_files/fakeuname $BUILDDIR/tmp/overrides/uname
 
 sudo cp $WORKDIR/build_files/ntpdate $BUILDDIR/bin/ntpdate
 
-PY_REQS="buildreqs_python3.lst"
-
 # Choose architecture-specific requirements file
 case "$ARCH" in
     "x86_64")
         BUILD_REQS="buildreqs.lst"
         ;;
     "aarch64"|"arm64")
-        BUILD_REQS="buildreqs-arm64.lst"
+        BUILD_REQS="buildreqs_arm64.lst"
         ;;
 esac
 
@@ -355,8 +357,6 @@ sudo chown $TC:$STAFF $BUILDDIR/usr/local/tce.installed
 while read line; do
     tce_load_with_retry "$line"
 done < <(paste $WORKDIR/build_files/$PY_REQS $WORKDIR/build_files/$BUILD_REQS)
-
-TINYIPA_PYTHON_EXE="python3.11"
 
 PIP_COMMAND="$TINYIPA_PYTHON_EXE -m pip"
 

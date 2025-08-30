@@ -117,15 +117,16 @@ cp $WORKDIR/build_files/fakeuname $FINALDIR/tmp/overrides/uname
 
 sudo cp $WORKDIR/build_files/ntpdate $FINALDIR/bin/ntpdate
 sudo chmod 755 $FINALDIR/bin/ntpdate
-PY_REQS="finalreqs_python3.lst"
 
 # Choose architecture-specific requirements file
 case "$ARCH" in
     "x86_64")
         FINAL_REQS="finalreqs.lst"
+        PY_REQS="finalreqs_python3.lst"
         ;;
     "aarch64"|"arm64")
-        FINAL_REQS="finalreqs-arm64.lst"
+        FINAL_REQS="finalreqs_arm64.lst"
+        PY_REQS="finalreqs_python3_arm64.lst"
         ;;
 esac
 
