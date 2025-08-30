@@ -4,7 +4,6 @@ bash.tcz
 binutils.tcz
 compiletc.tcz
 coreutils.tcz
-dmidecode.tcz
 gdisk.tcz
 git.tcz
 glib2-dev.tcz

@@ -1,6 +1,5 @@
 bash.tcz
 coreutils.tcz
-dmidecode.tcz
 dosfstools.tcz
 efibootmgr.tcz
 efivar.tcz
