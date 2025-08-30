@@ -23,6 +23,8 @@ case "$ARCH" in
         VMLINUZ_NAME="vmlinuz64"
         # For x86_64, modify ldconfig to handle x86-64 libraries
         LDCONFIG_MOD=true
+        PIP_COMMAND="pip3"
+        TINYIPA_PYTHON_EXE="python3"
         ;;
     "aarch64"|"arm64")
         TC_ARCH="aarch64"
@@ -30,6 +32,8 @@ case "$ARCH" in
         VMLINUZ_NAME="vmlinuz64"
         # For arm64, ldconfig modification is not needed
         LDCONFIG_MOD=false
+        TINYIPA_PYTHON_EXE="/usr/local/bin/python3.11"
+        PIP_COMMAND="$TINYIPA_PYTHON_EXE -m pip"
         ;;
     *)
         echo "Unsupported architecture: $ARCH"
@@ -174,9 +178,6 @@ fi
 
 # Ensure tinyipa picks up installed kernel modules
 $CHROOT_CMD depmod -a `$WORKDIR/build_files/fakeuname -r`
-
-PIP_COMMAND="pip3"
-TINYIPA_PYTHON_EXE="python3"
 
 # Install pip
 # NOTE(rpittau): pip MUST be the same version used in the build script or
