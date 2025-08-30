@@ -1,0 +1,213 @@
+name: Build TinyIPA
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build TinyIPA (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            wget \
+            curl \
+            cpio \
+            gzip \
+            tar \
+            squashfs-tools \
+            xorriso \
+            git \
+            python3 \
+            python3-pip \
+            python3-dev \
+            python3-setuptools \
+            python3-wheel
+
+      # Install isolinux/syslinux only for x86_64
+      - name: Install x86_64 boot tools
+        if: matrix.arch == 'x86_64'
+        run: |
+          sudo apt-get install -y \
+            isolinux \
+            syslinux-utils
+
+      - name: Install dependencies
+        run: |
+          ./install-deps.sh
+
+      - name: Set architecture environment
+        run: |
+          echo "ARCH=${{ matrix.arch }}" >> $GITHUB_ENV
+          echo "IPA_SOURCE_DIR=/opt/stack/ironic-python-agent" >> $GITHUB_ENV
+          echo "Building for architecture: ${{ matrix.arch }}"
+
+      - name: Clone ironic-python-agent
+        run: |
+          sudo mkdir -p /opt/stack
+          sudo chown $(whoami):$(whoami) /opt/stack
+          git clone https://github.com/openstack/ironic-python-agent.git /opt/stack/ironic-python-agent
+
+      - name: Build TinyIPA
+        run: |
+          export ARCH=${{ matrix.arch }}
+          make build
+
+      - name: Finalise TinyIPA
+        run: |
+          export ARCH=${{ matrix.arch }}
+          make finalise
+
+      - name: Build ISO (x86_64 only)
+        if: matrix.arch == 'x86_64'
+        run: |
+          export ARCH=${{ matrix.arch }}
+          make iso
+
+      - name: Create architecture-specific artifacts
+        run: |
+          # Find the actual generated files (they may have branch extensions)
+          for base in tinyipa*.gz tinyipa*.vmlinuz tinyipa*.tar.gz tinyipa*.iso; do
+            if [ -f "$base" ]; then
+              # Extract the extension part (everything after tinyipa)
+              ext="${base#tinyipa}"
+              # Create architecture-specific name
+              newname="tinyipa-${{ matrix.arch }}${ext}"
+              mv "$base" "$newname"
+              echo "Renamed $base to $newname"
+            fi
+          done
+
+          # Create checksums for all tinyipa-arch files
+          for f in tinyipa-${{ matrix.arch }}.*; do
+            if [ -f "$f" ] && [[ ! "$f" == *.sha256 ]]; then
+              sha256sum "$f" > "$f.sha256"
+              echo "Created checksum for $f"
+            fi
+          done
+
+      - name: List built artifacts
+        run: |
+          echo "Built artifacts:"
+          ls -la tinyipa-${{ matrix.arch }}.*
+          echo "File sizes:"
+          du -h tinyipa-${{ matrix.arch }}.*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyipa-${{ matrix.arch }}
+          path: |
+            tinyipa-${{ matrix.arch }}.*
+          retention-days: 7
+
+  publish:
+    name: Publish to Release
+    needs: build
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'release' && github.event.action == 'published'
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -name "tinyipa-*" -type f | while read file; do
+            cp "$file" release-assets/
+          done
+
+          echo "Release assets:"
+          ls -la release-assets/
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-latest:
+    name: Update Latest Release
+    needs: build
+    runs-on: ubuntu-24.04
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare latest assets
+        run: |
+          mkdir -p latest-assets
+          find artifacts -name "tinyipa-*" -type f | while read file; do
+            cp "$file" latest-assets/
+          done
+
+          echo "Latest assets:"
+          ls -la latest-assets/
+
+      - name: Delete existing latest release
+        continue-on-error: true
+        run: |
+          gh release delete latest --yes || true
+          git push origin --delete latest || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest TinyIPA Build
+          body: |
+            Latest automated build of TinyIPA for multiple architectures.
+
+            Built from commit: ${{ github.sha }}
+
+            ## Architectures
+            - **x86_64**: Intel/AMD 64-bit systems
+            - **aarch64**: ARM 64-bit systems (ARM64)
+
+            ## Files
+            - `tinyipa-{arch}.gz`: Root filesystem image
+            - `tinyipa-{arch}.vmlinuz`: Linux kernel
+            - `tinyipa-{arch}.tar.gz`: Combined package
+            - `tinyipa-x86_64.iso`: Bootable ISO (x86_64 only)
+            - `*.sha256`: Checksums for verification
+          files: latest-assets/*
+          prerelease: false
+          draft: false
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
