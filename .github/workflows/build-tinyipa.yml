@@ -23,8 +23,8 @@ jobs:
         include:
           - arch: x86_64
             runner: ubuntu-24.04
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
+          # - arch: aarch64
+          #   runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout code
@@ -32,45 +32,37 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.arch == 'x86_64' && '3.9' || '3.11' }}
+          python-version: "3.11"
 
       - name: Debug environment and fix sudo
         run: |
           echo "Current user: $(whoami)"
           echo "User ID: $(id)"
           echo "Groups: $(groups)"
-          ls -l /usr/bin/sudo || echo "sudo not found in /usr/bin/"
-          which sudo || echo "sudo not in PATH"
-
-          # Check available Python versions
-          echo "Available Python versions:"
-          ls -la /usr/bin/python* || echo "No python binaries in /usr/bin"
-          python3 --version || echo "python3 not available"
-          python3.9 --version || echo "python3.9 not available"
-          python3.10 --version || echo "python3.10 not available"
-          python3.11 --version || echo "python3.11 not available"
-          python3.12 --version || echo "python3.12 not available"
+          echo "Architecture: ${{ matrix.arch }}"
+          echo "Runner: ${{ matrix.runner }}"
 
           # Check sudo status
           if sudo --version; then
-            echo "sudo is available"
+            echo "✅ sudo is available"
           else
-            echo "sudo --version failed"
+            echo "❌ sudo --version failed"
           fi
 
           # Try to fix sudo if it's broken
           if ! sudo -n true 2>/dev/null; then
-            echo "Attempting to fix sudo configuration..."
-            # Try using doas or pkexec as alternatives, or run without sudo
-            if command -v doas >/dev/null 2>&1; then
-              echo "Using doas as sudo alternative"
-              alias sudo=doas
-            elif command -v pkexec >/dev/null 2>&1; then
-              echo "Using pkexec as sudo alternative"  
-              alias sudo=pkexec
-            else
-              echo "No sudo alternatives found"
+            echo "⚠️  sudo requires password, attempting to fix..."
+            # Check if we're already root
+            if [ "$(id -u)" = "0" ]; then
+              echo "Running as root, creating sudo alias"
+              echo '#!/bin/bash' > /tmp/fake-sudo
+              echo 'exec "$@"' >> /tmp/fake-sudo
+              chmod +x /tmp/fake-sudo
+              export PATH="/tmp:$PATH"
+              alias sudo=/tmp/fake-sudo
             fi
+          else
+            echo "✅ sudo works without password"
           fi
 
       - name: Set up environment
@@ -139,60 +131,30 @@ jobs:
       - name: Setup Python environment
         run: |
           echo "Setting up Python environment for TinyIPA build..."
+          echo "Architecture: ${{ matrix.arch }}"
 
-          # First, try to install python3.11 if it's not available
-          if ! python3.11 --version 2>/dev/null; then
-            echo "Python 3.11 not found, trying to install it..."
-            if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
-              sudo apt-get update
-              sudo apt-get install -y software-properties-common
-              sudo add-apt-repository -y ppa:deadsnakes/ppa || echo "PPA add failed, continuing..."
-              sudo apt-get update
-              sudo apt-get install -y python3.11 python3.11-dev python3.11-venv || echo "Python 3.11 install failed"
-            else
-              apt-get update
-              apt-get install -y software-properties-common
-              add-apt-repository -y ppa:deadsnakes/ppa || echo "PPA add failed, continuing..."
-              apt-get update
-              apt-get install -y python3.11 python3.11-dev python3.11-venv || echo "Python 3.11 install failed"
-            fi
-          fi
+          # Set TINYIPA_PYTHON_EXE based on what's available in TinyCore packages for each architecture
+          # These must match the Python versions installed by the TinyCore packages in build_files/
+          case "${{ matrix.arch }}" in
+            "x86_64")
+              # x86_64 uses python3.9.tcz package in TinyCore
+              TINYIPA_PYTHON_EXE="python3.9"
+              echo "x86_64 architecture: using $TINYIPA_PYTHON_EXE (matches python3.9.tcz package)"
+              ;;
+            "aarch64")
+              # aarch64 uses python3.11.tcz package in TinyCore  
+              TINYIPA_PYTHON_EXE="python3.11"
+              echo "aarch64 architecture: using $TINYIPA_PYTHON_EXE (matches python3.11.tcz package)"
+              ;;
+            *)
+              # Fallback to python3
+              TINYIPA_PYTHON_EXE="python3"
+              echo "Unknown architecture, using fallback: $TINYIPA_PYTHON_EXE"
+              ;;
+          esac
 
-          # Check what Python versions we have now
-          echo "Available Python versions after setup:"
-          for py in python3 python3.9 python3.10 python3.11 python3.12; do
-            if command -v $py >/dev/null; then
-              echo "$py: $($py --version)"
-            else
-              echo "$py: not available"
-            fi
-          done
-
-          # Find the best available Python version and create symlinks
-          if command -v python3.11 >/dev/null; then
-            PYTHON_VERSION="python3.11"
-          elif command -v python3.10 >/dev/null; then
-            PYTHON_VERSION="python3.10"
-          elif command -v python3.9 >/dev/null; then
-            PYTHON_VERSION="python3.9"
-          else
-            PYTHON_VERSION="python3"
-          fi
-
-          echo "Using Python version: $PYTHON_VERSION"
-          echo "TINYIPA_PYTHON_EXE=$PYTHON_VERSION" >> $GITHUB_ENV
-
-          # Create symlinks for consistency
-          if [ "$PYTHON_VERSION" != "python3.11" ] && ! command -v python3.11 >/dev/null; then
-            echo "Creating python3.11 symlink to $PYTHON_VERSION"
-            if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
-              sudo ln -sf $(which $PYTHON_VERSION) /usr/local/bin/python3.11
-            else
-              mkdir -p /tmp/python-links
-              ln -sf $(which $PYTHON_VERSION) /tmp/python-links/python3.11
-              echo "/tmp/python-links" >> $GITHUB_PATH
-            fi
-          fi
+          echo "TINYIPA_PYTHON_EXE=$TINYIPA_PYTHON_EXE" >> $GITHUB_ENV
+          echo "✅ Set TINYIPA_PYTHON_EXE=$TINYIPA_PYTHON_EXE for TinyCore chroot environment"
 
       # Install isolinux/syslinux only for x86_64
       - name: Install x86_64 boot tools
