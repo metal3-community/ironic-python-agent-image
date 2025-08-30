@@ -38,7 +38,11 @@ function setup_tce {
     sudo cp $dst_dir/etc/resolv.conf $dst_dir/etc/resolv.conf.old
     sudo cp /etc/resolv.conf $dst_dir/etc/resolv.conf
 
-    sudo cp -a $dst_dir/opt/tcemirror $dst_dir/opt/tcemirror.old
+    # Ensure opt directory exists and backup existing tcemirror if it exists
+    sudo mkdir -p $dst_dir/opt
+    if [ -f $dst_dir/opt/tcemirror ]; then
+        sudo cp -a $dst_dir/opt/tcemirror $dst_dir/opt/tcemirror.old
+    fi
     
     # Set architecture-specific mirror URL for tcz packages
     local arch=${ARCH:-$(uname -m)}
@@ -71,7 +75,12 @@ function cleanup_tce {
     sudo rm -rf $dst_dir/tmp/builtin
     sudo rm -rf $dst_dir/tmp/tcloop
     sudo rm -rf $dst_dir/usr/local/tce.installed
-    sudo mv $dst_dir/opt/tcemirror.old $dst_dir/opt/tcemirror
+    # Restore tcemirror backup if it exists
+    if [ -f $dst_dir/opt/tcemirror.old ]; then
+        sudo mv $dst_dir/opt/tcemirror.old $dst_dir/opt/tcemirror
+    else
+        sudo rm -f $dst_dir/opt/tcemirror
+    fi
     sudo mv $dst_dir/etc/resolv.conf.old $dst_dir/etc/resolv.conf
     sudo rm $dst_dir/etc/sysconfig/tcuser
     sudo rm $dst_dir/etc/sysconfig/tcedir

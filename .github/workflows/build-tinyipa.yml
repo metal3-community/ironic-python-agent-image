@@ -9,12 +9,16 @@ on:
   release:
     types: [published]
 
+# Prevent concurrent workflow runs
+concurrency:
+  group: build-ipa
+
 jobs:
   build:
     name: Build TinyIPA (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false
+      fail-fast: true # Fail immediately if any architecture fails
       matrix:
         include:
           - arch: x86_64

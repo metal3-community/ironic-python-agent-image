@@ -220,10 +220,14 @@ mkdir "$BUILDDIR"
 case "$ARCH" in
     "aarch64"|"arm64")
         # For ARM64, use the specific piCore tcz repository for packages
+        # Ensure the opt directory exists
+        sudo mkdir -p "$BUILDDIR/opt"
         sudo sh -c "echo http://tinycorelinux.net/16.x/aarch64/tcz > $BUILDDIR/opt/tcemirror"
         ;;
     *)
         # For other architectures (x86_64), use the standard mirror
+        # Ensure the opt directory exists
+        sudo mkdir -p "$BUILDDIR/opt"
         sudo sh -c "echo $TINYCORE_MIRROR_URL > $BUILDDIR/opt/tcemirror"
         ;;
 esac
