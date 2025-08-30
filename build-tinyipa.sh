@@ -280,6 +280,8 @@ echo Using upper-constraints:
 cat upper-constraints.txt
 cd $WORKDIR
 
+# Ensure /etc directory exists before copying resolv.conf
+sudo mkdir -p $BUILDDIR/etc
 sudo cp /etc/resolv.conf $BUILDDIR/etc/resolv.conf
 
 trap "sudo umount $BUILDDIR/proc; sudo umount $BUILDDIR/dev/pts" EXIT

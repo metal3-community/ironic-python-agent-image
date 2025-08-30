@@ -35,11 +35,17 @@ function setup_tce {
     # Find a working TC mirror if none is explicitly provided
     choose_tc_mirror
 
-    sudo cp $dst_dir/etc/resolv.conf $dst_dir/etc/resolv.conf.old
+    # Ensure necessary directories exist
+    sudo mkdir -p $dst_dir/etc
+    sudo mkdir -p $dst_dir/opt
+    
+    # Backup and setup resolv.conf
+    if [ -f $dst_dir/etc/resolv.conf ]; then
+        sudo cp $dst_dir/etc/resolv.conf $dst_dir/etc/resolv.conf.old
+    fi
     sudo cp /etc/resolv.conf $dst_dir/etc/resolv.conf
 
     # Ensure opt directory exists and backup existing tcemirror if it exists
-    sudo mkdir -p $dst_dir/opt
     if [ -f $dst_dir/opt/tcemirror ]; then
         sudo cp -a $dst_dir/opt/tcemirror $dst_dir/opt/tcemirror.old
     fi
@@ -57,7 +63,10 @@ function setup_tce {
             ;;
     esac
 
+    # Ensure necessary directories exist for tce setup
     mkdir -p $dst_dir/tmp/builtin/optional
+    sudo mkdir -p $dst_dir/etc/sysconfig
+    
     $CHROOT_CMD chown -R tc.staff /tmp/builtin
     $CHROOT_CMD chmod -R a+w /tmp/builtin
     $CHROOT_CMD ln -sf /tmp/builtin /etc/sysconfig/tcedir
@@ -81,7 +90,10 @@ function cleanup_tce {
     else
         sudo rm -f $dst_dir/opt/tcemirror
     fi
-    sudo mv $dst_dir/etc/resolv.conf.old $dst_dir/etc/resolv.conf
-    sudo rm $dst_dir/etc/sysconfig/tcuser
-    sudo rm $dst_dir/etc/sysconfig/tcedir
+    # Restore resolv.conf backup if it exists
+    if [ -f $dst_dir/etc/resolv.conf.old ]; then
+        sudo mv $dst_dir/etc/resolv.conf.old $dst_dir/etc/resolv.conf
+    fi
+    sudo rm -f $dst_dir/etc/sysconfig/tcuser
+    sudo rm -f $dst_dir/etc/sysconfig/tcedir
 }
