@@ -93,6 +93,18 @@ function tce_load_with_retry() {
     while [ $attempts -le $DOWNLOAD_RETRY_MAX ]; do
         if sudo chroot --userspec=$TC:$STAFF $BUILDDIR /usr/bin/env -i PATH=$CHROOT_PATH http_proxy=$http_proxy https_proxy=$https_proxy no_proxy=$no_proxy tce-load -wci $package; then
             echo "Successfully loaded $package on attempt $attempts"
+            
+            # For ARM64 (piCore), extract binary files from files.tar.gz if they exist
+            if [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
+                # Check for files.tar.gz in various possible locations
+                local package_name="${package%.tcz}"
+                local files_archive="/usr/local/share/${package_name}/files/files.tar.gz"
+                if [ -f "$BUILDDIR$files_archive" ]; then
+                    echo "Extracting binary files from $files_archive for package $package"
+                    $CHROOT_CMD tar -xzf "$files_archive" -C / 2>/dev/null || true
+                fi
+            fi
+            
             return 0
         fi
 
