@@ -141,25 +141,16 @@ case "$ARCH" in
         sudo partprobe "$LOOP_DEVICE"
         
         # Create mount points
-        mkdir -p /tmp/picore_boot /tmp/picore_root
+        mkdir -p /tmp/picore_boot
         
-        # Mount boot partition (first partition) to get kernel
+        # Mount boot partition (first partition) to get kernel and rootfs
         sudo mount "${LOOP_DEVICE}p1" /tmp/picore_boot
         
-        # Mount root partition (second partition) to get rootfs
-        sudo mount "${LOOP_DEVICE}p2" /tmp/picore_root
-        
-        # Extract kernel - find the kernel file (may be kernel*.img or vmlinuz*)
-        KERNEL_FILE=""
-        for f in /tmp/picore_boot/kernel*.img; do
-            if [ -f "$f" ]; then
-                KERNEL_FILE="$f"
-                break
-            fi
-        done
-        
-        if [ -z "$KERNEL_FILE" ]; then
-            for f in /tmp/picore_boot/vmlinuz*; do
+        # Extract kernel - specifically look for kernel61225v8.img
+        KERNEL_FILE="/tmp/picore_boot/kernel61225v8.img"
+        if [ ! -f "$KERNEL_FILE" ]; then
+            # Fallback to pattern search if specific file doesn't exist
+            for f in /tmp/picore_boot/kernel*.img; do
                 if [ -f "$f" ]; then
                     KERNEL_FILE="$f"
                     break
@@ -167,8 +158,9 @@ case "$ARCH" in
             done
         fi
         
-        if [ -z "$KERNEL_FILE" ]; then
+        if [ ! -f "$KERNEL_FILE" ]; then
             echo "ERROR: Could not find kernel file in boot partition"
+            echo "Available files:"
             sudo ls -la /tmp/picore_boot/
             exit 1
         fi
@@ -178,9 +170,17 @@ case "$ARCH" in
         # Ensure we have proper permissions on the kernel file
         sudo chown "$(whoami):$(whoami)" "${VMLINUZ_NAME}"
         
-        # Create rootfs archive from mounted root partition
-        echo "Creating rootfs archive..."
-        ( cd /tmp/picore_root && sudo find . | sudo cpio -o -H newc | gzip -9 > "$WORKDIR/build_files/${CORE_NAME}.gz" )
+        # Extract rootfs - specifically look for rootfs-piCore64-16.0.gz
+        ROOTFS_FILE="/tmp/picore_boot/rootfs-piCore64-16.0.gz"
+        if [ ! -f "$ROOTFS_FILE" ]; then
+            echo "ERROR: Could not find rootfs-piCore64-16.0.gz in boot partition"
+            echo "Available files:"
+            sudo ls -la /tmp/picore_boot/
+            exit 1
+        fi
+        
+        # Copy the pre-compressed rootfs
+        sudo cp "$ROOTFS_FILE" "$WORKDIR/build_files/${CORE_NAME}.gz"
         
         # Ensure proper permissions on the rootfs file
         sudo chown "$(whoami):$(whoami)" "$WORKDIR/build_files/${CORE_NAME}.gz"
@@ -188,9 +188,8 @@ case "$ARCH" in
         # Cleanup mounts
         echo "Cleaning up mounts..."
         sudo umount /tmp/picore_boot || true
-        sudo umount /tmp/picore_root || true
         sudo losetup -d "$LOOP_DEVICE" || true
-        rmdir /tmp/picore_boot /tmp/picore_root || true
+        rmdir /tmp/picore_boot || true
         
         # Remove the image file to save space
         rm -f "piCore64-${PICORE_VERSION}.img"
@@ -283,6 +282,10 @@ cd $WORKDIR
 # Ensure /etc directory exists before copying resolv.conf
 sudo mkdir -p $BUILDDIR/etc
 sudo cp /etc/resolv.conf $BUILDDIR/etc/resolv.conf
+
+# Ensure proc and dev/pts directories exist before mounting
+sudo mkdir -p $BUILDDIR/proc
+sudo mkdir -p $BUILDDIR/dev/pts
 
 trap "sudo umount $BUILDDIR/proc; sudo umount $BUILDDIR/dev/pts" EXIT
 sudo mount --bind /proc $BUILDDIR/proc
