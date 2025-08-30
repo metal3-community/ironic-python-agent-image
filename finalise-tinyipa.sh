@@ -32,7 +32,7 @@ case "$ARCH" in
         VMLINUZ_NAME="vmlinuz64"
         # For arm64, ldconfig modification is not needed
         LDCONFIG_MOD=false
-        TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3}"
+        TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3.11}"
         PIP_COMMAND="$TINYIPA_PYTHON_EXE -m pip"
         ;;
     *)

@@ -135,7 +135,7 @@ fi
 # Find a working TC mirror if none is explicitly provided
 choose_tc_mirror
 
-cd $WORKDIR/build_files
+cd "${WORKDIR}/build_files"
 
 case "$ARCH" in
     "aarch64"|"arm64")
@@ -284,8 +284,8 @@ pwd
 PYTHON_COMMAND="python3"
 $PYTHON_COMMAND setup.py sdist --dist-dir "$BUILDDIR/tmp/localpip" --quiet
 
-ls $BUILDDIR/tmp/localpip || true
-cp requirements.txt $BUILDDIR/tmp/ipa-requirements.txt
+ls "${BUILDDIR}/tmp/localpip" || true
+cp requirements.txt "${BUILDDIR}/tmp/ipa-requirements.txt"
 
 if [ -n "$PYTHON_EXTRA_SOURCES_DIR_LIST" ]; then
     IFS="," read -ra PKGDIRS <<< "$PYTHON_EXTRA_SOURCES_DIR_LIST"
@@ -295,7 +295,7 @@ if [ -n "$PYTHON_EXTRA_SOURCES_DIR_LIST" ]; then
         rm -rf *.egg-info
         $PYTHON_COMMAND setup.py sdist --dist-dir "$BUILDDIR/tmp/localpip" --quiet
         if [[ -r requirements.txt ]]; then
-            cp requirements.txt $BUILDDIR/tmp/${PKG}-requirements.txt
+            cp requirements.txt "${BUILDDIR}/tmp/${PKG}-requirements.txt"
         fi
         popd
     done
@@ -360,9 +360,21 @@ esac
 # NOTE(rpittau) change ownership of the tce info dir to prevent writing issues
 sudo chown $TC:$STAFF $BUILDDIR/usr/local/tce.installed
 
+# Process Python requirements
 while read line; do
-    tce_load_with_retry "$line"
-done < <(paste $WORKDIR/build_files/$PY_REQS $WORKDIR/build_files/$BUILD_REQS)
+    if [ -n "$line" ]; then
+        tce_load_with_retry "$line"
+    fi
+done < $WORKDIR/build_files/$PY_REQS
+
+# Process build requirements
+while read line; do
+    if [ -n "$line" ]; then
+        tce_load_with_retry "$line"
+    fi
+done < $WORKDIR/build_files/$BUILD_REQS
+
+
 
 PIP_COMMAND="$TINYIPA_PYTHON_EXE -m pip"
 

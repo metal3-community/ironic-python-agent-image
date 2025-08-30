@@ -25,7 +25,7 @@ TC=1001
 STAFF=50
 
 CHROOT_PATH="/tmp/overrides:/usr/local/sbin:/usr/local/bin:/apps/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-CHROOT_CMD="sudo chroot $DST_DIR /usr/bin/env -i PATH=$CHROOT_PATH http_proxy=$http_proxy https_proxy=$https_proxy no_proxy=$no_proxy"
+CHROOT_CMD="sudo chroot ${DST_DIR} /usr/bin/env -i PATH=$CHROOT_PATH http_proxy=$http_proxy https_proxy=$https_proxy no_proxy=$no_proxy"
 TC_CHROOT_CMD="sudo chroot --userspec=$TC:$STAFF $DST_DIR /usr/bin/env -i PATH=$CHROOT_PATH http_proxy=$http_proxy https_proxy=$https_proxy no_proxy=$no_proxy"
 
 function setup_tce {
