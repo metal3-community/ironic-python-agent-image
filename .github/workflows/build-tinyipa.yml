@@ -30,27 +30,98 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Debug environment and fix sudo
+        run: |
+          echo "Current user: $(whoami)"
+          echo "User ID: $(id)"
+          echo "Groups: $(groups)"
+          ls -l /usr/bin/sudo || echo "sudo not found in /usr/bin/"
+          which sudo || echo "sudo not in PATH"
+
+          # Check sudo status
+          if sudo --version; then
+            echo "sudo is available"
+          else
+            echo "sudo --version failed"
+          fi
+
+          # Try to fix sudo if it's broken
+          if ! sudo -n true 2>/dev/null; then
+            echo "Attempting to fix sudo configuration..."
+            # Try using doas or pkexec as alternatives, or run without sudo
+            if command -v doas >/dev/null 2>&1; then
+              echo "Using doas as sudo alternative"
+              alias sudo=doas
+            elif command -v pkexec >/dev/null 2>&1; then
+              echo "Using pkexec as sudo alternative"  
+              alias sudo=pkexec
+            else
+              echo "No sudo alternatives found"
+            fi
+          fi
+
       - name: Set up environment
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            wget \
-            curl \
-            cpio \
-            gzip \
-            tar \
-            squashfs-tools \
-            xorriso \
-            git \
-            python3 \
-            python3-pip \
-            python3-dev \
-            python3-setuptools \
-            python3-wheel \
-            kpartx \
-            parted \
-            util-linux
+          # First try normal sudo, if it fails try alternatives
+          if sudo apt-get update; then
+            echo "sudo is working normally"
+          else
+            echo "sudo failed, trying alternatives..."
+            # Check if we're already root
+            if [ "$(id -u)" = "0" ]; then
+              echo "Running as root, creating sudo alias"
+              echo '#!/bin/bash' > /tmp/fake-sudo
+              echo 'exec "$@"' >> /tmp/fake-sudo
+              chmod +x /tmp/fake-sudo
+              export PATH="/tmp:$PATH"
+              alias sudo=/tmp/fake-sudo
+              apt-get update
+            else
+              echo "Not root and sudo failed, this may cause issues"
+              apt-get update || echo "apt-get update failed"
+            fi
+          fi
+
+          # Install packages (try with and without sudo)
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get install -y \
+              build-essential \
+              wget \
+              curl \
+              cpio \
+              gzip \
+              tar \
+              squashfs-tools \
+              xorriso \
+              git \
+              python3 \
+              python3-pip \
+              python3-dev \
+              python3-setuptools \
+              python3-wheel \
+              kpartx \
+              parted \
+              util-linux
+          else
+            apt-get install -y \
+              build-essential \
+              wget \
+              curl \
+              cpio \
+              gzip \
+              tar \
+              squashfs-tools \
+              xorriso \
+              git \
+              python3 \
+              python3-pip \
+              python3-dev \
+              python3-setuptools \
+              python3-wheel \
+              kpartx \
+              parted \
+              util-linux
+          fi
 
       # Install isolinux/syslinux only for x86_64
       - name: Install x86_64 boot tools
@@ -72,8 +143,13 @@ jobs:
 
       - name: Clone ironic-python-agent
         run: |
-          sudo mkdir -p /opt/stack
-          sudo chown $(whoami):$(id -g) /opt/stack
+          # Create directory with proper permissions
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo mkdir -p /opt/stack
+            sudo chown $(whoami):$(id -g) /opt/stack
+          else
+            mkdir -p /opt/stack || echo "mkdir failed, trying without sudo"
+          fi
           git clone https://github.com/openstack/ironic-python-agent.git /opt/stack/ironic-python-agent
 
       - name: Build TinyIPA
