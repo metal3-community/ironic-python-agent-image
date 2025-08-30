@@ -21,18 +21,14 @@ jobs:
       fail-fast: true # Fail immediately if any architecture fails
       matrix:
         include:
-          - arch: x86_64
-            runner: ubuntu-24.04
-          # - arch: aarch64
-          #   runner: ubuntu-24.04-arm
+          # - arch: x86_64
+          #   runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
 
       - name: Debug environment and fix sudo
         run: |
@@ -127,34 +123,6 @@ jobs:
               parted \
               util-linux
           fi
-
-      - name: Setup Python environment
-        run: |
-          echo "Setting up Python environment for TinyIPA build..."
-          echo "Architecture: ${{ matrix.arch }}"
-
-          # Set TINYIPA_PYTHON_EXE based on what's available in TinyCore packages for each architecture
-          # These must match the Python versions installed by the TinyCore packages in build_files/
-          case "${{ matrix.arch }}" in
-            "x86_64")
-              # x86_64 uses python3.9.tcz package in TinyCore
-              TINYIPA_PYTHON_EXE="python3.9"
-              echo "x86_64 architecture: using $TINYIPA_PYTHON_EXE (matches python3.9.tcz package)"
-              ;;
-            "aarch64")
-              # aarch64 uses python3.11.tcz package in TinyCore  
-              TINYIPA_PYTHON_EXE="python3.11"
-              echo "aarch64 architecture: using $TINYIPA_PYTHON_EXE (matches python3.11.tcz package)"
-              ;;
-            *)
-              # Fallback to python3
-              TINYIPA_PYTHON_EXE="python3"
-              echo "Unknown architecture, using fallback: $TINYIPA_PYTHON_EXE"
-              ;;
-          esac
-
-          echo "TINYIPA_PYTHON_EXE=$TINYIPA_PYTHON_EXE" >> $GITHUB_ENV
-          echo "✅ Set TINYIPA_PYTHON_EXE=$TINYIPA_PYTHON_EXE for TinyCore chroot environment"
 
       # Install isolinux/syslinux only for x86_64
       - name: Install x86_64 boot tools

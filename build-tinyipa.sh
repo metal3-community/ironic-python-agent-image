@@ -184,9 +184,6 @@ case "$ARCH" in
         
         sudo cp "$KERNEL_FILE" "${VMLINUZ_NAME}"
         
-        # Ensure we have proper permissions on the kernel file
-        sudo chown "$(whoami):$(id -g)" "${VMLINUZ_NAME}"
-        
         # Extract rootfs - specifically look for rootfs-piCore64-16.0.gz
         ROOTFS_FILE="$PICORE_BOOT_DIR/rootfs-piCore64-16.0.gz"
         if [ ! -f "$ROOTFS_FILE" ]; then
@@ -197,10 +194,7 @@ case "$ARCH" in
         fi
         
         # Copy the pre-compressed rootfs
-        sudo cp "$ROOTFS_FILE" "$WORKDIR/build_files/${CORE_NAME}.gz"
-        
-        # Ensure proper permissions on the rootfs file
-        sudo chown "$(whoami):$(id -g)" "$WORKDIR/build_files/${CORE_NAME}.gz"
+        cp "$ROOTFS_FILE" "${CORE_NAME}.gz"
         
         # Cleanup mounts
         echo "Cleaning up mounts..."
@@ -209,9 +203,9 @@ case "$ARCH" in
             sudo hdiutil detach "$MOUNT_POINT" || true
         else
             # Linux - use umount and losetup
-            sudo umount /tmp/picore_boot || true
+            sudo umount "$PICORE_BOOT_DIR" || true
             sudo losetup -d "$LOOP_DEVICE" || true
-            rmdir /tmp/picore_boot || true
+            rmdir "$PICORE_BOOT_DIR" || true
         fi
         
         # Remove the image file to save space
