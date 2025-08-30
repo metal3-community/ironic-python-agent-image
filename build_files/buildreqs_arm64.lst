@@ -4,10 +4,8 @@ bash.tcz
 binutils.tcz
 compiletc.tcz
 coreutils.tcz
-gdisk.tcz
 git.tcz
 glib2-dev.tcz
-hdparm.tcz
 ipv6-netfilter-6.12.25-piCore-v8.tcz
 libpci-dev.tcz
 libtool-dev.tcz
