@@ -368,7 +368,7 @@ while read line; do
     tce_load_with_retry "$line"
 done < <(paste $WORKDIR/build_files/$PY_REQS $WORKDIR/build_files/$BUILD_REQS)
 
-TINYIPA_PYTHON_EXE="python3.9"
+TINYIPA_PYTHON_EXE="python3.11"
 
 PIP_COMMAND="$TINYIPA_PYTHON_EXE -m pip"
 
