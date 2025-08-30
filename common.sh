@@ -50,18 +50,7 @@ function setup_tce {
         sudo cp -a $dst_dir/opt/tcemirror $dst_dir/opt/tcemirror.old
     fi
     
-    # Set architecture-specific mirror URL for tcz packages
-    local arch=${ARCH:-$(uname -m)}
-    case "$arch" in
-        "aarch64"|"arm64")
-            # For ARM64, use the specific piCore tcz repository
-            sudo sh -c "echo http://tinycorelinux.net/16.x/aarch64/tcz > $dst_dir/opt/tcemirror"
-            ;;
-        *)
-            # For other architectures (x86_64), use the standard mirror
-            sudo sh -c "echo $TINYCORE_MIRROR_URL > $dst_dir/opt/tcemirror"
-            ;;
-    esac
+    sudo sh -c "echo $TINYCORE_MIRROR_URL > $dst_dir/opt/tcemirror"
 
     # Ensure necessary directories exist for tce setup
     mkdir -p $dst_dir/tmp/builtin/optional
