@@ -43,29 +43,29 @@ function download_with_retry() {
     local destination_path=$2
     local attempts=1
 
-    declare -A tar_flags=(
-        ["tar.gz"]="z"
-        ["tgz"]="z"
-        ["tar.bz2"]="j"
-        ["tbz2"]="j"
-        ["tar.xz"]="J"
-        ["txz"]="J"
-    )
-
     echo "Downloading $source_url to $destination_path"
     while [ $attempts -le $DOWNLOAD_RETRY_MAX ]; do
-        for ext in "${!tar_flags[@]}"; do
-            if [[ "$source_url" =~ \.${ext}$ ]]; then
-                mkdir -p "$destination_path"
-                if wget --timeout=30 --tries=3 -O - "$source_url" | tar -x${tar_flags[$ext]} -C "$destination_path" --strip-components=1 -f -; then
-                    echo "Successfully downloaded $source_url on attempt $attempts"
-                    return 0
-                fi
-                break
+        # Check for compressed tar archives and extract them
+        if [[ "$source_url" =~ \.tar\.gz$ ]] || [[ "$source_url" =~ \.tgz$ ]]; then
+            mkdir -p "$destination_path"
+            if wget --timeout=30 --tries=3 -O - "$source_url" | tar -xz -C "$destination_path" --strip-components=1 -f -; then
+                echo "Successfully downloaded $source_url on attempt $attempts"
+                return 0
             fi
-        done
-
-        if [[ ! "$source_url" =~ \.tar\.[a-z]+$ ]]; then
+        elif [[ "$source_url" =~ \.tar\.bz2$ ]] || [[ "$source_url" =~ \.tbz2$ ]]; then
+            mkdir -p "$destination_path"
+            if wget --timeout=30 --tries=3 -O - "$source_url" | tar -xj -C "$destination_path" --strip-components=1 -f -; then
+                echo "Successfully downloaded $source_url on attempt $attempts"
+                return 0
+            fi
+        elif [[ "$source_url" =~ \.tar\.xz$ ]] || [[ "$source_url" =~ \.txz$ ]]; then
+            mkdir -p "$destination_path"
+            if wget --timeout=30 --tries=3 -O - "$source_url" | tar -xJ -C "$destination_path" --strip-components=1 -f -; then
+                echo "Successfully downloaded $source_url on attempt $attempts"
+                return 0
+            fi
+        else
+            # For non-tar files, download directly
             if wget --timeout=30 --tries=3 "$source_url" -O "${destination_path}"; then
                 echo "Successfully downloaded $source_url on attempt $attempts"
                 return 0
@@ -135,22 +135,35 @@ case "$ARCH" in
         echo "Extracting piCore image..."
         gunzip -f "piCore64-${PICORE_VERSION}.img.gz"
         
-        # Mount the image to extract rootfs and kernel
+        # Mount the image to extract rootfs and kernel - cross platform approach
         echo "Mounting piCore image to extract components..."
-        LOOP_DEVICE=$(sudo losetup -f --show "piCore64-${PICORE_VERSION}.img")
-        sudo partprobe "$LOOP_DEVICE"
         
         # Create mount points
         mkdir -p /tmp/picore_boot
         
-        # Mount boot partition (first partition) to get kernel and rootfs
-        sudo mount "${LOOP_DEVICE}p1" /tmp/picore_boot
+        # Platform-specific mounting
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS - use hdiutil
+            MOUNT_RESULT=$(sudo hdiutil attach "piCore64-${PICORE_VERSION}.img" -readonly | tail -2)
+            MOUNT_POINT=$(echo "$MOUNT_RESULT" | awk '{print $3}')
+            if [ -z "$MOUNT_POINT" ]; then
+                echo "ERROR: Failed to mount piCore image on macOS"
+                exit 1
+            fi
+            PICORE_BOOT_DIR="$MOUNT_POINT"
+        else
+            # Linux - use losetup
+            LOOP_DEVICE=$(sudo losetup -f --show "piCore64-${PICORE_VERSION}.img")
+            sudo partprobe "$LOOP_DEVICE"
+            sudo mount "${LOOP_DEVICE}p1" /tmp/picore_boot
+            PICORE_BOOT_DIR="/tmp/picore_boot"
+        fi
         
         # Extract kernel - specifically look for kernel61225v8.img
-        KERNEL_FILE="/tmp/picore_boot/kernel61225v8.img"
+        KERNEL_FILE="$PICORE_BOOT_DIR/kernel61225v8.img"
         if [ ! -f "$KERNEL_FILE" ]; then
             # Fallback to pattern search if specific file doesn't exist
-            for f in /tmp/picore_boot/kernel*.img; do
+            for f in "$PICORE_BOOT_DIR"/kernel*.img; do
                 if [ -f "$f" ]; then
                     KERNEL_FILE="$f"
                     break
@@ -161,21 +174,21 @@ case "$ARCH" in
         if [ ! -f "$KERNEL_FILE" ]; then
             echo "ERROR: Could not find kernel file in boot partition"
             echo "Available files:"
-            sudo ls -la /tmp/picore_boot/
+            sudo ls -la "$PICORE_BOOT_DIR"/
             exit 1
         fi
         
         sudo cp "$KERNEL_FILE" "${VMLINUZ_NAME}"
         
         # Ensure we have proper permissions on the kernel file
-        sudo chown "$(whoami):$(whoami)" "${VMLINUZ_NAME}"
+        sudo chown "$(whoami):$(id -g)" "${VMLINUZ_NAME}"
         
         # Extract rootfs - specifically look for rootfs-piCore64-16.0.gz
-        ROOTFS_FILE="/tmp/picore_boot/rootfs-piCore64-16.0.gz"
+        ROOTFS_FILE="$PICORE_BOOT_DIR/rootfs-piCore64-16.0.gz"
         if [ ! -f "$ROOTFS_FILE" ]; then
             echo "ERROR: Could not find rootfs-piCore64-16.0.gz in boot partition"
             echo "Available files:"
-            sudo ls -la /tmp/picore_boot/
+            sudo ls -la "$PICORE_BOOT_DIR"/
             exit 1
         fi
         
@@ -183,13 +196,19 @@ case "$ARCH" in
         sudo cp "$ROOTFS_FILE" "$WORKDIR/build_files/${CORE_NAME}.gz"
         
         # Ensure proper permissions on the rootfs file
-        sudo chown "$(whoami):$(whoami)" "$WORKDIR/build_files/${CORE_NAME}.gz"
+        sudo chown "$(whoami):$(id -g)" "$WORKDIR/build_files/${CORE_NAME}.gz"
         
         # Cleanup mounts
         echo "Cleaning up mounts..."
-        sudo umount /tmp/picore_boot || true
-        sudo losetup -d "$LOOP_DEVICE" || true
-        rmdir /tmp/picore_boot || true
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS - use hdiutil detach
+            sudo hdiutil detach "$MOUNT_POINT" || true
+        else
+            # Linux - use umount and losetup
+            sudo umount /tmp/picore_boot || true
+            sudo losetup -d "$LOOP_DEVICE" || true
+            rmdir /tmp/picore_boot || true
+        fi
         
         # Remove the image file to save space
         rm -f "piCore64-${PICORE_VERSION}.img"
@@ -213,7 +232,7 @@ cd $WORKDIR
 mkdir "$BUILDDIR"
 
 # Extract rootfs from .gz file
-( cd "$BUILDDIR" && zcat $WORKDIR/build_files/${CORE_NAME}.gz | sudo cpio -i -H newc -d )
+( cd "$BUILDDIR" && gunzip -c $WORKDIR/build_files/${CORE_NAME}.gz | sudo cpio -i -d )
 
 # Configure mirror
 case "$ARCH" in
@@ -249,6 +268,17 @@ mkdir -p "$BUILDDIR/tmp/localpip"
 
 # Download IPA and requirements
 IPA_SOURCE_DIR=${IPA_SOURCE_DIR:-/opt/stack/ironic-python-agent}
+
+# Ensure ironic-python-agent source is available
+if [ ! -d "$IPA_SOURCE_DIR" ]; then
+    echo "IPA source directory $IPA_SOURCE_DIR does not exist, cloning from GitHub..."
+    # Create parent directory if needed
+    sudo mkdir -p "$(dirname "$IPA_SOURCE_DIR")"
+    sudo chown "$(whoami):$(id -g)" "$(dirname "$IPA_SOURCE_DIR")"
+    git clone https://github.com/openstack/ironic-python-agent.git "$IPA_SOURCE_DIR"
+    echo "Successfully cloned ironic-python-agent to $IPA_SOURCE_DIR"
+fi
+
 cd $IPA_SOURCE_DIR
 rm -rf *.egg-info
 pwd
@@ -288,8 +318,8 @@ sudo mkdir -p $BUILDDIR/proc
 sudo mkdir -p $BUILDDIR/dev/pts
 
 trap "sudo umount $BUILDDIR/proc; sudo umount $BUILDDIR/dev/pts" EXIT
-sudo mount --bind /proc $BUILDDIR/proc
-sudo mount --bind /dev/pts $BUILDDIR/dev/pts
+sudo mount --bind /proc $BUILDDIR/proc || true
+sudo mount --bind /dev/pts $BUILDDIR/dev/pts || true
 
 if [ -d /opt/stack/new ]; then
     CI_DIR=/opt/stack/new

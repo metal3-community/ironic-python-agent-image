@@ -73,7 +73,7 @@ jobs:
       - name: Clone ironic-python-agent
         run: |
           sudo mkdir -p /opt/stack
-          sudo chown $(whoami):$(whoami) /opt/stack
+          sudo chown $(whoami):$(id -g) /opt/stack
           git clone https://github.com/openstack/ironic-python-agent.git /opt/stack/ironic-python-agent
 
       - name: Build TinyIPA
