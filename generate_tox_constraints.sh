@@ -1,7 +1,7 @@
 #!/bin/bash -eu
 
-SCRIPT_NAME=$(basename $0)
-COMMON_ROOT=$(dirname $0)
+SCRIPT_NAME=$(basename "$0")
+COMMON_ROOT=$(dirname "$0")
 DESTINATION="$1"
 TOX_INI=${2:-tox.ini}
 
@@ -31,7 +31,7 @@ download() {
         return 1
     else
         log "Downloading from '${url}'"
-        curl -L ${url} -o "${destination}"
+        curl -L "${url}" -o "${destination}"
     fi
     return 0
 }
@@ -58,9 +58,9 @@ download_uc() {
 }
 
 copy_new_requirements_uc() {
-    if [ -e "/opt/stack/new/requirements" ]; then
+    if [[ -e "/opt/stack/new/requirements" ]]; then
         copy "/opt/stack/new/requirements/upper-constraints.txt" "${DESTINATION}"
-    elif [ -e "/opt/stack/requirements" ]; then
+    elif [[ -e "/opt/stack/requirements" ]]; then
         copy "/opt/stack/requirements/upper-constraints.txt" "${DESTINATION}"
     else
         log "No local requirements repository, will download upper-constraints"
@@ -77,7 +77,7 @@ download_from_tox_ini_url() {
     #                  scripts. This is specially done to leverage the release
     #                  tools that automatically update the tox.ini when projects
     #                  are released.
-    url=$(sed -n 's/^.*{env:TOX_CONSTRAINTS_FILE\:\([^}]*\)}.*$/\1/p' $TOX_INI | head -n1)
+    url=$(sed -n 's/^.*{env:TOX_CONSTRAINTS_FILE\:\([^}]*\)}.*$/\1/p' "${TOX_INI}" | head -n1)
     log "tox.ini indicates '${url}' as fallback."
     download "${url}" "${DESTINATION}"
 }

@@ -1,11 +1,11 @@
 #!/bin/sh
 
+R="6.12.25-piCore-v8"
+M="aarch64"
 S="Linux"
 N="box"
-R="6.6.8-tinycore64"
 P="unknown"
 V="#2017 SMP"
-M="x86_64"
 I="unknown"
 O="GNU/Linux"
 
@@ -77,8 +77,8 @@ while :; do
   esac
 done
 
-if $OPT_A; then
-    echo "$S $N $R $V $M $O"
+if ${OPT_A}; then
+    echo "${S} ${N} $R $V $M $O"
     exit 0
 fi
 
@@ -107,4 +107,4 @@ fi
 if $OPT_O; then
     string="$string $O"
 fi
-echo $string
+echo "${string}"

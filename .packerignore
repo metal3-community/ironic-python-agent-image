@@ -1,0 +1,20 @@
+# Packer ignore file - exclude build artifacts and large directories
+*.gz
+*.zip
+*.tar.gz
+tinyipabuild/
+tinyipafinal/
+*.vmlinuz
+vmlinuz64
+*.sha256
+*.iso
+*.tcz*
+squashfs-root/
+syslinux*/
+newiso/
+.git/
+.github/
+output/
+dist/
+*.log
+.packer/

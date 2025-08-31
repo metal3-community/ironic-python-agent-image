@@ -4,6 +4,7 @@
 tinyipabuild
 tinyipafinal
 *.vmlinuz
+output/
 vmlinuz64
 *.sha256
 *.iso
@@ -11,3 +12,4 @@ vmlinuz64
 squashfs-root
 syslinux*
 newiso
+*.log
