@@ -9,7 +9,7 @@
 # and makes required changes for Ansible + Python to work in compiled/optimized
 # Python environment.
 #
-# By default, id_rsa or id_dsa keys  of the user performing the build
+# By default, id_rsa keys of the user performing the build
 # are baked into the image as authorized_keys for 'tc' user.
 # To supply different public ssh key, before running this script set
 # SSH_PUBLIC_KEY environment variable to point to absolute path to the key.
@@ -30,7 +30,6 @@ SSH_PUBLIC_KEY=${SSH_PUBLIC_KEY:-}
 
 SSHD_CONFIG_PATH="/usr/local/etc/ssh/sshd_config"
 SSH_RSA_KEY_PATH="/usr/local/etc/ssh/ssh_host_rsa_key"
-SSH_DSA_KEY_PATH="/usr/local/etc/ssh/ssh_host_dsa_key"
 SSH_ED25519_KEY_PATH="/usr/local/etc/ssh/ssh_host_ed25519_key"
 
 function validate_params {
@@ -40,12 +39,9 @@ function validate_params {
             _found_ssh_key="${SSH_PUBLIC_KEY}"
         fi
     else
-        for fmt in rsa dsa; do
-            if [[ -r "${HOME}/.ssh/id_${fmt}.pub" ]]; then
-                _found_ssh_key="${HOME}/.ssh/id_${fmt}.pub"
-                break
-            fi
-        done
+        if [[ -r "${HOME}/.ssh/id_rsa.pub" ]]; then
+            _found_ssh_key="${HOME}/.ssh/id_rsa.pub"
+        fi
     fi
 
     if [[ -z "${_found_ssh_key}" ]]; then
@@ -84,13 +80,11 @@ function install_ssh {
         # Configure OpenSSH
         ${CHROOT_CMD} cp "${SSHD_CONFIG_PATH}".orig "${SSHD_CONFIG_PATH}"
         echo "PasswordAuthentication no" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
-        # Generate and configure host keys - RSA, DSA, Ed25519
+        # Generate and configure host keys - RSA, Ed25519
         # NOTE(pas-ha) ECDSA host key will still be re-generated fresh on every image boot
         ${CHROOT_CMD} ssh-keygen -q -t rsa -N "" -f "${SSH_RSA_KEY_PATH}"
-        ${CHROOT_CMD} ssh-keygen -q -t dsa -N "" -f "${SSH_DSA_KEY_PATH}"
         ${CHROOT_CMD} ssh-keygen -q -t ed25519 -N "" -f "${SSH_ED25519_KEY_PATH}"
         echo "HostKey ${SSH_RSA_KEY_PATH}" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
-        echo "HostKey ${SSH_DSA_KEY_PATH}" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
         echo "HostKey ${SSH_ED25519_KEY_PATH}" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
     fi
 

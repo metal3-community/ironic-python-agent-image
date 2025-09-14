@@ -61,6 +61,7 @@ RUN git clone https://github.com/openstack/requirements.git /opt/stack/requireme
 WORKDIR /workspace
 
 COPY *.sh /workspace/
+COPY udhcpc.script /workspace/
 COPY Makefile /workspace/
 COPY build_files/* /workspace/build_files/
 COPY build_files/${TARGETARCH}/* /workspace/build_files/

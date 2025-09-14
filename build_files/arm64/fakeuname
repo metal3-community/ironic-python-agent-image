@@ -83,8 +83,8 @@ if ${OPT_A}; then
 fi
 
 string=''
-if $OPT_S; then
-    string="$string $S"
+if ${OPT_S}; then
+    string="${string} $S"
 fi
 if $OPT_N; then
     string="$string $N"
@@ -107,4 +107,4 @@ fi
 if $OPT_O; then
     string="$string $O"
 fi
-echo "${string}"
+echo "${string}" | xargs

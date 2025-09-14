@@ -53,12 +53,9 @@ if ${AUTHORIZE_SSH} ; then
             _found_ssh_key="${SSH_PUBLIC_KEY}"
         fi
     else
-        for fmt in rsa dsa; do
-            if [[ -f "${HOME}/.ssh/id_${fmt}.pub" ]]; then
-                _found_ssh_key="${HOME}/.ssh/id_${fmt}.pub"
-                break
-            fi
-        done
+        if [[ -f "${HOME}/.ssh/id_rsa.pub" ]]; then
+            _found_ssh_key="${HOME}/.ssh/id_rsa.pub"
+        fi
     fi
 
     if [[ -z "${_found_ssh_key}" ]]; then
@@ -98,6 +95,9 @@ fi
 # Copy python wheels from build to final dir
 cp -Rp "${BUILDDIR}/tmp/wheels" "${FINALDIR}/tmp/wheelhouse"
 
+# Copy kernel modules from build to final dir
+cp -Rp "${BUILDDIR}/lib/modules" "${FINALDIR}/lib/"
+
 cp "${WORKDIR}"/build_files/qemu-utils.* "${FINALDIR}/tmp/builtin/optional"
 cp "${WORKDIR}"/build_files/lshw.* "${FINALDIR}/tmp/builtin/optional"
 
@@ -132,15 +132,13 @@ if ${INSTALL_SSH} ; then
     # Install and configure bare minimum for SSH access
     download_and_extract_tcz openssh.tcz "${DST_DIR}"
     # Configure OpenSSH
-    ${CHROOT_CMD} cp /usr/local/etc/ssh/sshd_config.orig /usr/local/etc/ssh/sshd_config
+    ${CHROOT_CMD} cp /usr/local/etc/ssh/sshd_config.example /usr/local/etc/ssh/sshd_config
     echo "PasswordAuthentication no" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
-    # Generate and configure host keys - RSA, DSA, Ed25519
+    # Generate and configure host keys - RSA, Ed25519
     # NOTE(pas-ha) ECDSA host key will still be re-generated fresh on every image boot
     ${CHROOT_CMD} ssh-keygen -t rsa -N "" -f /usr/local/etc/ssh/ssh_host_rsa_key
-    ${CHROOT_CMD} ssh-keygen -t dsa -N "" -f /usr/local/etc/ssh/ssh_host_dsa_key
     ${CHROOT_CMD} ssh-keygen -t ed25519 -N "" -f /usr/local/etc/ssh/ssh_host_ed25519_key
     echo "HostKey /usr/local/etc/ssh/ssh_host_rsa_key" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
-    echo "HostKey /usr/local/etc/ssh/ssh_host_dsa_key" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
     echo "HostKey /usr/local/etc/ssh/ssh_host_ed25519_key" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
 
     # setup user and SSH keys
@@ -148,7 +146,7 @@ if ${INSTALL_SSH} ; then
         ${CHROOT_CMD} mkdir -p /home/tc
         ${CHROOT_CMD} chown -R tc.staff /home/tc
         ${TC_CHROOT_CMD} mkdir -p /home/tc/.ssh
-        cat "${_found_ssh_key}" | ${TC_CHROOT_CMD} tee /home/tc/.ssh/authorized_keys
+        cat "${_found_ssh_key}" | ${TC_CHROOT_CMD} tee /home/tc/.ssh/authorized_keys || true
         ${CHROOT_CMD} chown tc.staff /home/tc/.ssh/authorized_keys
         ${TC_CHROOT_CMD} chmod 600 /home/tc/.ssh/authorized_keys
     fi
@@ -162,6 +160,7 @@ fi
 if ${TINYIPA_REQUIRE_IPMITOOL}; then
     extract_tcz /tmp/builtin/optional/ipmitool.tcz "${DST_DIR}"
 fi
+
 
 # Ensure tinyipa picks up installed kernel modules
 ${CHROOT_CMD} depmod -a "$("${WORKDIR}"/build_files/fakeuname -r)"

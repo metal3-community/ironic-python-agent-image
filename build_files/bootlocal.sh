@@ -30,7 +30,7 @@ if ! type "ironic-python-agent" > /dev/null ; then
     if hash pip3 2>/dev/null; then
         PIP_COMMAND="pip3"
     fi
-    $PIP_COMMAND install --no-index --find-links=file:///tmp/wheelhouse ironic_python_agent
+    ${PIP_COMMAND} install --no-index --find-links=file:///tmp/wheelhouse ironic_python_agent
 fi
 
 # Create ipa-rescue-config directory for rescue password
@@ -47,7 +47,7 @@ configure_dhcp_network() {
     echo "Sleeping 30 sec as network interface is being updated"
     sleep 30
     INTERFACES=$(ip -o link |grep "LOWER_UP"|cut -f2 -d" "|sed 's/://'|grep -v "lo")
-    for interface in $INTERFACES; do
+    for interface in ${INTERFACES}; do
         pidfile="/var/run/udhcpc/${interface}.pid"
         /sbin/udhcpc -b -p "${pidfile}" -i "${interface}" -s /opt/udhcpc.script >> /var/log/udhcpc.log 2>&1
     done
@@ -81,7 +81,7 @@ ironic-python-agent --config-dir /etc/ironic-python-agent.d/ 2>&1 | tee /var/log
 create_rescue_user() {
     crypted_pass=$(cat /etc/ipa-rescue-config/ipa-rescue-password)
     adduser rescue -D -G root # no useradd
-    echo "rescue:$crypted_pass" | chpasswd -e
+    echo "rescue:${crypted_pass}" | chpasswd -e
     sh -c "echo \"rescue ALL=(ALL) NOPASSWD: ALL\" >> /etc/sudoers" # no suooers.d in tiny core.
 
     # Restart sshd with allowing password authentication

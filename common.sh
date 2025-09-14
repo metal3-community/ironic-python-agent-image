@@ -9,6 +9,7 @@ case "${ARCH}" in
         export TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3.9}"
         export CORE_NAME="corepure64"
         export VMLINUZ_NAME="vmlinuz64"
+        export KERNEL_VERSION="6.12.11-tinycore64"
         # For x86_64, modify ldconfig to handle x86-64 libraries
         export LDCONFIG_MOD=true
         export PIP_COMMAND="pip3"
@@ -18,6 +19,7 @@ case "${ARCH}" in
         export TINYIPA_PYTHON_EXE="${TINYIPA_PYTHON_EXE:-python3.11}"
         export CORE_NAME="corepure64"
         export VMLINUZ_NAME="vmlinuz64"
+        export KERNEL_VERSION="6.12.25-piCore-v8"
         # For arm64, ldconfig modification is not needed
         export LDCONFIG_MOD=false
         export PIP_COMMAND="${TINYIPA_PYTHON_EXE} -m pip"
@@ -192,12 +194,14 @@ function download_and_extract_tcz() {
     local builddir=$2
     local skip_deps=${3:-false}
     local attempts=1
+
+    # Replace KERNEL placeholder with the correct version string for the architecture
+    package="${package//KERNEL/${KERNEL_VERSION}}"
+
     local tcz_url="${TINYCORE_MIRROR_URL}/${TC_RELEASE}/${TC_ARCH}/tcz/${package}"
     local dep_url="${TINYCORE_MIRROR_URL}/${TC_RELEASE}/${TC_ARCH}/tcz/${package}.dep"
     local download_retry_max=${DOWNLOAD_RETRY_MAX:-5}
-    local download_retry_delay=${DOWNLOAD_RETRY_DELAY:-10}
-
-    # Check if package is already installed
+    local download_retry_delay=${DOWNLOAD_RETRY_DELAY:-10}    # Check if package is already installed
     local package_name=${package%%.tcz}
     if [[ -f "${builddir}/usr/local/tce.installed/${package_name}" ]]; then
         echo "Package ${package} already installed, skipping"
