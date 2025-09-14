@@ -70,6 +70,30 @@ mkdir -p /etc/ironic-python-agent.d/
 if [ -d /sys/firmware/efi ] ; then
     echo "Make efivars available"
     mount -t efivarfs efivarfs /sys/firmware/efi/efivars
+    
+    # Ensure EFI runtime services are working
+    if [ -d /sys/firmware/efi/runtime ]; then
+        echo "EFI runtime services detected and available"
+    else
+        echo "Warning: EFI detected but runtime services may not be available"
+    fi
+    
+    # Check if EFI modules are built into the kernel or available as modules
+    echo "Checking EFI support in kernel..."
+    if grep -q "CONFIG_EFI=y" /proc/config.gz 2>/dev/null; then
+        echo "EFI support is built into kernel"
+    elif [ -d "/lib/modules/$(uname -r)/kernel/drivers/firmware/efi" ]; then
+        echo "EFI modules directory found, attempting to load modules..."
+        for module in efi_pstore efivars; do
+            echo "Loading EFI module: ${module}"
+            modprobe "${module}" 2>/dev/null || echo "Failed to load ${module}"
+        done
+    else
+        echo "Warning: No EFI modules found in /lib/modules/$(uname -r)/kernel/drivers/firmware/"
+        echo "Available firmware drivers:"
+        ls -la "/lib/modules/$(uname -r)/kernel/drivers/firmware/" 2>/dev/null || echo "No firmware directory found"
+        echo "EFI support may be built into kernel or unavailable"
+    fi
 fi
 
 # Run IPA
