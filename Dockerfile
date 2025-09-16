@@ -88,7 +88,7 @@ RUN set -eux; \
     case "${TARGETARCH}" in \
         "arm64") \
             echo "Downloading piCore image for ARM64..."; \
-            PICORE_IMG="piCore64-${TINYCORE_VERSION}.0.0.img.gz"
+            PICORE_IMG="piCore64-${TINYCORE_VERSION}.0.0.img.gz"; \
             PICORE_IMG_URL="${TINYCORE_MIRROR_URL}/${TC_RELEASE}/${TC_ARCH}/release/RPi/${PICORE_IMG}"; \
             \
             wget --timeout=30 --tries=15 -q "${PICORE_IMG_URL}" -O "${PICORE_IMG}"; \
@@ -386,11 +386,21 @@ ARG QEMU_RELEASE="9.2.4"
 ARG LSHW_RELEASE="B.02.20"
 ARG BIOSDEVNAME_RELEASE="0.7.2"
 ARG IPMITOOL_GIT_HASH="19d78782d795d0cf4ceefe655f616210c9143e62"
-ARG TINYIPA_REQUIRE_BIOSDEVNAME=true
+ARG TINYIPA_REQUIRE_BIOSDEVNAME=false
 ARG TINYIPA_REQUIRE_IPMITOOL=true
+
+# Convert ARGs to ENV so they're available in RUN commands
+ENV QEMU_RELEASE=${QEMU_RELEASE}
+ENV LSHW_RELEASE=${LSHW_RELEASE}
+ENV BIOSDEVNAME_RELEASE=${BIOSDEVNAME_RELEASE}
+ENV IPMITOOL_GIT_HASH=${IPMITOOL_GIT_HASH}
+ENV TINYIPA_REQUIRE_BIOSDEVNAME=${TINYIPA_REQUIRE_BIOSDEVNAME}
+ENV TINYIPA_REQUIRE_IPMITOOL=${TINYIPA_REQUIRE_IPMITOOL}
 
 # Set up build environment
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+RUN NORTC=1 NOZSWAP=1 /etc/init.d/tc-config
 
 # Set up Python and install dependencies
 RUN echo "=== Setting up build environment ===" && \
@@ -466,7 +476,8 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     while [ "${attempts}" -le "${max_attempts}" ]; do \
         for mirror_url in ${QEMU_MIRRORS}; do \
             echo "Trying QEMU download from: ${mirror_url}"; \
-            if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" 2>/dev/null; then \
+            QEMU_FILENAME="qemu-${QEMU_RELEASE}.tar.gz"; \
+            if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" -O "${QEMU_FILENAME}" 2>/dev/null; then \
                 echo "Successfully downloaded qemu on attempt ${attempts} from ${mirror_url}"; \
                 QEMU_SUCCESS=true; \
                 break; \
@@ -491,7 +502,8 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     while [ "${attempts}" -le "${max_attempts}" ]; do \
         for mirror_url in ${LSHW_MIRRORS}; do \
             echo "Trying LSHW download from: ${mirror_url}"; \
-            if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" 2>/dev/null; then \
+            LSHW_FILENAME="lshw-${LSHW_RELEASE}.tar.gz"; \
+            if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" -O "${LSHW_FILENAME}" 2>/dev/null; then \
                 echo "Successfully downloaded lshw on attempt ${attempts} from ${mirror_url}"; \
                 LSHW_SUCCESS=true; \
                 break; \
@@ -517,7 +529,8 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
         while [ "${attempts}" -le "${max_attempts}" ]; do \
             for mirror_url in ${BIOSDEVNAME_MIRRORS}; do \
                 echo "Trying BIOSDEVNAME download from: ${mirror_url}"; \
-                if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" 2>/dev/null; then \
+                BIOSDEVNAME_FILENAME="biosdevname-${BIOSDEVNAME_RELEASE}.tar.gz"; \
+                if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" -O "${BIOSDEVNAME_FILENAME}" 2>/dev/null; then \
                     echo "Successfully downloaded biosdevname on attempt ${attempts} from ${mirror_url}"; \
                     BIOSDEVNAME_SUCCESS=true; \
                     break; \
@@ -542,10 +555,13 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
         attempts=1; \
         while [ "${attempts}" -le "${max_attempts}" ]; do \
             echo "Trying to clone ipmitool on attempt ${attempts}"; \
+            # Make sure we're in the downloads directory and clone to a specific subdirectory
+            cd /tmp/downloads && \
+            rm -rf ipmitool-src && \
             if git clone --depth 1 --config http.sslVerify=false https://github.com/ipmitool/ipmitool.git ipmitool-src 2>/dev/null; then \
                 cd ipmitool-src && \
                 git reset "${IPMITOOL_GIT_HASH}" --hard 2>/dev/null && \
-                cd .. && \
+                cd /tmp/downloads && \
                 echo "Successfully cloned ipmitool on attempt ${attempts}"; \
                 IPMITOOL_SUCCESS=true; \
                 break; \
@@ -564,13 +580,19 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     # Build tools if downloads succeeded
     echo "=== Building downloaded tools ===" && \
     \
+    # Debug: List all files to see what was actually downloaded
+    echo "=== DEBUG: Files in downloads directory ===" && \
+    ls -la . && \
+    echo "=== END DEBUG ===" && \
+    \
     # Build qemu-utils if downloaded
     if [ "${QEMU_SUCCESS}" = "true" ]; then \
         echo "Building qemu-utils..." && \
-        # Find and extract the downloaded QEMU archive
-        QEMU_ARCHIVE=$(find . -maxdepth 1 -name "*qemu*" -type f | head -1) && \
-        if [ -n "${QEMU_ARCHIVE}" ]; then \
-            echo "Found QEMU archive: ${QEMU_ARCHIVE}" && \
+        # Find any qemu-related archive file
+        QEMU_ARCHIVE=$(ls -1 *qemu*.tar.gz 2>/dev/null | head -1) && \
+        echo "Found QEMU archive: ${QEMU_ARCHIVE}" && \
+        if [ -n "${QEMU_ARCHIVE}" ] && [ -f "${QEMU_ARCHIVE}" ]; then \
+            echo "Extracting QEMU archive: ${QEMU_ARCHIVE}" && \
             if echo "${QEMU_ARCHIVE}" | grep -q "\.tar\.xz$"; then \
                 tar -xf "${QEMU_ARCHIVE}"; \
             else \
@@ -591,7 +613,7 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
                 QEMU_SUCCESS=false; \
             fi; \
         else \
-            echo "ERROR: No QEMU archive found"; \
+            echo "ERROR: No QEMU archive files found"; \
             QEMU_SUCCESS=false; \
         fi; \
     else \
@@ -601,9 +623,9 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     # Build lshw if downloaded
     if [ "${LSHW_SUCCESS}" = "true" ]; then \
         echo "Building lshw..." && \
-        # Find and extract the downloaded LSHW archive
-        LSHW_ARCHIVE=$(find . -maxdepth 1 -name "*lshw*" -type f | head -1) && \
-        if [ -n "${LSHW_ARCHIVE}" ]; then \
+        # Use the specific filename we downloaded
+        LSHW_ARCHIVE="lshw-${LSHW_RELEASE}.tar.gz" && \
+        if [ -f "${LSHW_ARCHIVE}" ]; then \
             echo "Found LSHW archive: ${LSHW_ARCHIVE}" && \
             tar -xzf "${LSHW_ARCHIVE}" && \
             # Find the extracted directory (handle GitHub vs official naming)
@@ -619,7 +641,7 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
                 LSHW_SUCCESS=false; \
             fi; \
         else \
-            echo "ERROR: No LSHW archive found"; \
+            echo "ERROR: LSHW archive not found: ${LSHW_ARCHIVE}"; \
             LSHW_SUCCESS=false; \
         fi; \
     else \
@@ -629,9 +651,9 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     # Build biosdevname if downloaded and required
     if [ "${TINYIPA_REQUIRE_BIOSDEVNAME}" = "true" ] && [ "${BIOSDEVNAME_SUCCESS}" = "true" ]; then \
         echo "Building biosdevname..." && \
-        # Find and extract the downloaded BIOSDEVNAME archive
-        BIOSDEVNAME_ARCHIVE=$(find . -maxdepth 1 -name "*biosdevname*" -type f | head -1) && \
-        if [ -n "${BIOSDEVNAME_ARCHIVE}" ]; then \
+        # Use the specific filename we downloaded
+        BIOSDEVNAME_ARCHIVE="biosdevname-${BIOSDEVNAME_RELEASE}.tar.gz" && \
+        if [ -f "${BIOSDEVNAME_ARCHIVE}" ]; then \
             echo "Found BIOSDEVNAME archive: ${BIOSDEVNAME_ARCHIVE}" && \
             tar -xzf "${BIOSDEVNAME_ARCHIVE}" && \
             # Find the extracted directory
@@ -648,7 +670,7 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
                 BIOSDEVNAME_SUCCESS=false; \
             fi; \
         else \
-            echo "ERROR: No BIOSDEVNAME archive found"; \
+            echo "ERROR: BIOSDEVNAME archive not found: ${BIOSDEVNAME_ARCHIVE}"; \
             BIOSDEVNAME_SUCCESS=false; \
         fi; \
     else \
@@ -658,13 +680,18 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     # Build ipmitool if cloned and required
     if [ "${TINYIPA_REQUIRE_IPMITOOL}" = "true" ] && [ "${IPMITOOL_SUCCESS}" = "true" ]; then \
         echo "Building ipmitool..." && \
-        cd ipmitool-src && \
-        ./bootstrap && \
-        ./configure --prefix=/tmp/ipmitool/usr/local && \
-        make -j$(nproc) && \
-        make install && \
-        echo "ipmitool build completed" && \
-        cd /tmp/downloads; \
+        if [ -d "ipmitool-src" ]; then \
+            cd ipmitool-src && \
+            ./bootstrap && \
+            ./configure --prefix=/tmp/ipmitool/usr/local && \
+            make -j$(nproc) && \
+            make install && \
+            echo "ipmitool build completed" && \
+            cd /tmp/downloads; \
+        else \
+            echo "ERROR: ipmitool-src directory not found"; \
+            IPMITOOL_SUCCESS=false; \
+        fi; \
     else \
         echo "Skipping ipmitool build (not required or clone failed)"; \
     fi && \
@@ -673,25 +700,28 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
 
 # Download and build IPA (optional - may fail due to network/ssl issues)
 RUN echo "=== Attempting to download and build IPA ===" && \
-    mkdir -p /tmp/wheels /tmp/ipa-dist /tmp/ipa-source && \
+    mkdir -p /tmp/wheels /tmp/localpip /tmp/ipa-source && \
     \
-    # Try to clone IPA with retry logic
+    # Try to download IPA release with retry logic
     IPA_SUCCESS=false && \
     attempts=1 && \
     max_attempts=3 && \
     while [ "${attempts}" -le "${max_attempts}" ]; do \
-        if git clone --depth 1 https://github.com/openstack/ironic-python-agent.git /tmp/ipa-source-temp; then \
-            echo "Successfully cloned IPA on attempt ${attempts}"; \
-            mv /tmp/ipa-source-temp/* /tmp/ipa-source/ || true && \
-            rmdir /tmp/ipa-source-temp 2>/dev/null || true && \
+        if wget --no-check-certificate --timeout=30 --tries=2 \
+            "https://github.com/openstack/ironic-python-agent/archive/refs/tags/11.2.0.tar.gz" \
+            -O "/tmp/ironic-python-agent-11.2.0.tar.gz"; then \
+            echo "Successfully downloaded IPA release on attempt ${attempts}"; \
+            cd /tmp && \
+            tar -xzf ironic-python-agent-11.2.0.tar.gz --strip-components=1 -C ipa-source && \
+            echo "Successfully extracted IPA release 11.2.0" && \
             IPA_SUCCESS=true; \
             break; \
         fi; \
-        echo "Clone attempt ${attempts} failed for IPA, retrying..."; \
-        rm -rf /tmp/ipa-source-temp; \
+        echo "Download attempt ${attempts} failed for IPA, retrying..."; \
+        rm -rf /tmp/ironic-python-agent-11.2.0.tar.gz /tmp/ironic-python-agent-11.2.0 /tmp/ipa-source; \
         attempts=$((attempts + 1)); \
         if [ "${attempts}" -gt "${max_attempts}" ]; then \
-            echo "Failed to clone IPA after ${max_attempts} attempts - will create minimal environment"; \
+            echo "Failed to download IPA after ${max_attempts} attempts - will create minimal environment"; \
             break; \
         fi; \
         sleep 5; \
@@ -701,9 +731,15 @@ RUN echo "=== Attempting to download and build IPA ===" && \
     if [ "${IPA_SUCCESS}" = "true" ]; then \
         echo "Building IPA packages..." && \
         cd /tmp/ipa-source && \
-        python3 setup.py sdist --dist-dir /tmp/ipa-dist && \
+        # Create PKG-INFO file to help PBR with versioning
+        echo "Metadata-Version: 2.1" > PKG-INFO && \
+        echo "Name: ironic-python-agent" >> PKG-INFO && \
+        echo "Version: 11.2.0" >> PKG-INFO && \
+        # Set PBR_VERSION environment variable to override version detection
+        export PBR_VERSION=11.2.0 && \
+        python3 setup.py sdist --dist-dir /tmp/localpip --quiet && \
         python3 -m pip wheel -c /dev/null --wheel-dir /tmp/wheels -r requirements.txt && \
-        python3 -m pip wheel -c /dev/null --no-index --pre --wheel-dir /tmp/wheels --find-links=/tmp/ipa-dist --find-links=/tmp/wheels ironic-python-agent && \
+        python3 -m pip wheel -c /dev/null --no-index --pre --wheel-dir /tmp/wheels --find-links=/tmp/localpip --find-links=/tmp/wheels ironic-python-agent && \
         echo "IPA build completed"; \
     else \
         echo "Skipping IPA build due to clone failure - creating minimal wheel directory"; \
@@ -883,7 +919,7 @@ RUN mkdir -p /tmp/qemu-utils /tmp/lshw-installed /tmp/biosdevname-installed /tmp
 # Copy any built tools that exist (will be empty directories if builds failed)
 COPY --from=tinyipa-build /tmp/qemu-utils /tmp/qemu-utils/
 COPY --from=tinyipa-build /tmp/lshw-installed /tmp/lshw-installed/
-COPY --from=tinyipa-build /tmp/biosdevname-installed /tmp/biosdevname-installed/
+# COPY --from=tinyipa-build /tmp/biosdevname-installed /tmp/biosdevname-installed/
 COPY --from=tinyipa-build /tmp/ipmitool /tmp/ipmitool/
 COPY --from=tinyipa-build /tmp/wheels /tmp/wheelhouse/
 COPY --from=tinyipa-build /tmp/ipa-source /tmp/ipa-source/
@@ -982,21 +1018,43 @@ RUN echo "=== Setting up final TinyIPA environment ===" && \
     fi && \
     \
     # Copy configuration files like finalise-tinyipa.sh
+    # Set TARGETARCH for build file selection
+    if [ -z "${TARGETARCH:-}" ]; then \
+      case "$(uname -m)" in \
+        x86_64) TARGETARCH=amd64 ;; \
+        aarch64) TARGETARCH=arm64 ;; \
+        armv7l) TARGETARCH=arm ;; \
+        *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;; \
+      esac; \
+    fi && \
+    BUILD_FILES_ARCH="/tmp/build_files/${TARGETARCH}" && \
     cp /tmp/build_files/bootlocal.sh /opt/ && \
     cp /tmp/build_files/dhcp.sh /etc/init.d/dhcp.sh && \
     cp /tmp/build_files/modprobe.conf /etc/modprobe.conf && \
     mkdir -p /tmp/overrides && \
-    cp /tmp/build_files/fakeuname /tmp/overrides/uname && \
+    cp "${BUILD_FILES_ARCH}/fakeuname" /tmp/overrides/uname && \
     cp /tmp/build_files/ntpdate /bin/ntpdate && \
     chmod 755 /bin/ntpdate && \
     \
     # Set up SSH like finalise-tinyipa.sh does
-    cp /usr/local/etc/ssh/sshd_config.orig /usr/local/etc/ssh/sshd_config && \
-    echo "PasswordAuthentication no" >> /usr/local/etc/ssh/sshd_config && \
-    ssh-keygen -t rsa -N "" -f /usr/local/etc/ssh/ssh_host_rsa_key && \
-    ssh-keygen -t ed25519 -N "" -f /usr/local/etc/ssh/ssh_host_ed25519_key && \
-    echo "HostKey /usr/local/etc/ssh/ssh_host_rsa_key" >> /usr/local/etc/ssh/sshd_config && \
-    echo "HostKey /usr/local/etc/ssh/ssh_host_ed25519_key" >> /usr/local/etc/ssh/sshd_config && \
+    if [ -f /usr/local/etc/ssh/sshd_config.orig ]; then \
+        cp /usr/local/etc/ssh/sshd_config.orig /usr/local/etc/ssh/sshd_config && \
+        echo "PasswordAuthentication no" >> /usr/local/etc/ssh/sshd_config && \
+        ssh-keygen -t rsa -N "" -f /usr/local/etc/ssh/ssh_host_rsa_key && \
+        ssh-keygen -t ed25519 -N "" -f /usr/local/etc/ssh/ssh_host_ed25519_key && \
+        echo "HostKey /usr/local/etc/ssh/ssh_host_rsa_key" >> /usr/local/etc/ssh/sshd_config && \
+        echo "HostKey /usr/local/etc/ssh/ssh_host_ed25519_key" >> /usr/local/etc/ssh/sshd_config && \
+        echo "SSH configured successfully"; \
+    elif [ -f /usr/local/etc/ssh/sshd_config ]; then \
+        echo "PasswordAuthentication no" >> /usr/local/etc/ssh/sshd_config && \
+        ssh-keygen -t rsa -N "" -f /usr/local/etc/ssh/ssh_host_rsa_key && \
+        ssh-keygen -t ed25519 -N "" -f /usr/local/etc/ssh/ssh_host_ed25519_key && \
+        echo "HostKey /usr/local/etc/ssh/ssh_host_rsa_key" >> /usr/local/etc/ssh/sshd_config && \
+        echo "HostKey /usr/local/etc/ssh/ssh_host_ed25519_key" >> /usr/local/etc/ssh/sshd_config && \
+        echo "SSH configured successfully"; \
+    else \
+        echo "WARNING: SSH configuration files not found - skipping SSH setup"; \
+    fi && \
     \
     # Set up hwclock workaround like finalise-tinyipa.sh
     mkdir -p /var/lib/hwclock && \
@@ -1030,29 +1088,7 @@ RUN echo "=== Setting up final TinyIPA environment ===" && \
 
 # Create the final initramfs and prepare kernel
 RUN echo "=== Creating final initramfs ===" && \
-    # Set TARGETARCH for kernel selection
-    if [ -z "${TARGETARCH:-}" ]; then \
-      case "$(uname -m)" in \
-        x86_64) TARGETARCH=amd64 ;; \
-        aarch64) TARGETARCH=arm64 ;; \
-        armv7l) TARGETARCH=arm ;; \
-        *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;; \
-      esac; \
-    fi; \
-    \
-    case "${TARGETARCH}" in \
-        "amd64") \
-            VMLINUZ_NAME="vmlinuz64" \
-            ;; \
-        "arm64") \
-            VMLINUZ_NAME="vmlinuz64" \
-            ;; \
-        *) \
-            echo "Unsupported architecture: ${TARGETARCH}"; \
-            exit 1 \
-            ;; \
-    esac; \
-    \
+    VMLINUZ_NAME="vmlinuz64" && \
     # Create initramfs using the same method as finalise-tinyipa.sh
     mkdir -p /output && \
     cd / && \
