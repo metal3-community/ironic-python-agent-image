@@ -240,11 +240,11 @@ RUN set -eux; \
     case "${TARGETARCH}" in \
         "amd64") \
             TC_ARCH="x86_64"; \
-            BUILD_DIR="/build_files/amd64"; \
+            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         "arm64") \
             TC_ARCH="aarch64"; \
-            BUILD_DIR="/build_files/arm64"; \
+            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         *) \
             echo "Unsupported architecture: ${TARGETARCH}"; \
@@ -419,6 +419,14 @@ RUN echo "=== Setting up build environment ===" && \
             break; \
         fi; \
     done && \
+    PIP_EXE="" && \
+    for candidate in /usr/local/bin/pip3.11 /usr/bin/pip3.11 /usr/local/bin/pip3.9 /usr/bin/pip3.9 /usr/local/bin/pip3 /usr/bin/pip3; do \
+        if [ -f "$candidate" ]; then \
+            PIP_EXE="$candidate"; \
+            echo "Found Python executable: $PYTHON_EXE"; \
+            break; \
+        fi; \
+    done && \
     if [ -n "$PYTHON_EXE" ]; then \
         # Create symlinks like common.sh does
         if [ ! -f /usr/local/bin/python3 ]; then \
@@ -429,11 +437,22 @@ RUN echo "=== Setting up build environment ===" && \
             ln -sf "$(basename "$PYTHON_EXE")" /usr/local/bin/python; \
             echo "Created python symlink"; \
         fi; \
-        python3 -m ensurepip && \
-        pip3 install --no-cache --upgrade pip setuptools wheel && \
-        pip3 install pbr; \
     else \
         echo "ERROR: No Python executable found in base system or extracted packages"; \
+        exit 1; \
+    fi; \
+    if [ -n "$PIP_EXE" ]; then \
+        # Create symlinks like common.sh does
+        if [ ! -f /usr/local/bin/pip3 ]; then \
+            ln -sf "$(basename "$PIP_EXE")" /usr/local/bin/pip3; \
+            echo "Created pip3 symlink"; \
+        fi; \
+        if [ ! -f /usr/local/bin/pip ]; then \
+            ln -sf "$(basename "$PIP_EXE")" /usr/local/bin/pip; \
+            echo "Created pip symlink"; \
+        fi; \
+    else \
+        echo "ERROR: No Pip executable found in base system or extracted packages"; \
         exit 1; \
     fi
 
@@ -768,11 +787,11 @@ RUN set -eux; \
     case "${TARGETARCH}" in \
         "amd64") \
             TC_ARCH="x86_64"; \
-            BUILD_DIR="/build_files/amd64"; \
+            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         "arm64") \
             TC_ARCH="aarch64"; \
-            BUILD_DIR="/build_files/arm64"; \
+            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         *) \
             echo "Unsupported architecture: ${TARGETARCH}"; \
@@ -907,6 +926,9 @@ RUN cd /tcz-packages && \
 
 FROM tinycore-base AS tinyipa
 
+ARG TARGETARCH
+ENV TARGETARCH=${TARGETARCH}
+
 # Switch to root for setup operations
 USER root
 
@@ -924,8 +946,12 @@ COPY --from=tinyipa-build /tmp/ipmitool /tmp/ipmitool/
 COPY --from=tinyipa-build /tmp/wheels /tmp/wheelhouse/
 COPY --from=tinyipa-build /tmp/ipa-source /tmp/ipa-source/
 
-# Copy build files
-COPY build_files/ /tmp/build_files/
+# Copy build files individually
+COPY build_files/bootlocal.sh /opt/
+COPY build_files/dhcp.sh /etc/init.d/dhcp.sh
+COPY build_files/modprobe.conf /etc/modprobe.conf
+COPY build_files/ntpdate /bin/ntpdate
+COPY build_files/${TARGETARCH}/fakeuname /tmp/overrides/uname
 
 # Set up final TinyIPA environment
 RUN echo "=== Setting up final TinyIPA environment ===" && \
@@ -1017,24 +1043,9 @@ RUN echo "=== Setting up final TinyIPA environment ===" && \
         echo "WARNING: No Python executable found - continuing without Python support"; \
     fi && \
     \
-    # Copy configuration files like finalise-tinyipa.sh
-    # Set TARGETARCH for build file selection
-    if [ -z "${TARGETARCH:-}" ]; then \
-      case "$(uname -m)" in \
-        x86_64) TARGETARCH=amd64 ;; \
-        aarch64) TARGETARCH=arm64 ;; \
-        armv7l) TARGETARCH=arm ;; \
-        *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;; \
-      esac; \
-    fi && \
-    BUILD_FILES_ARCH="/tmp/build_files/${TARGETARCH}" && \
-    cp /tmp/build_files/bootlocal.sh /opt/ && \
-    cp /tmp/build_files/dhcp.sh /etc/init.d/dhcp.sh && \
-    cp /tmp/build_files/modprobe.conf /etc/modprobe.conf && \
-    mkdir -p /tmp/overrides && \
-    cp "${BUILD_FILES_ARCH}/fakeuname" /tmp/overrides/uname && \
-    cp /tmp/build_files/ntpdate /bin/ntpdate && \
+    # Set up permissions for copied files
     chmod 755 /bin/ntpdate && \
+    mkdir -p /tmp/overrides && \
     \
     # Set up SSH like finalise-tinyipa.sh does
     if [ -f /usr/local/etc/ssh/sshd_config.orig ]; then \

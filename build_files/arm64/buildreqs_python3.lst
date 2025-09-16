@@ -1,2 +1,5 @@
 python3.11.tcz
 python3.11-dev.tcz
+python3.11-pip.tcz
+python3.11-wheel.tcz
+python3.11-setuptools.tcz
