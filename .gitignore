@@ -16,3 +16,6 @@ newiso
 .DS_Store
 *.img
 /tmp
+.terraform
+.terraform.lock.hcl
+*.tfstate
