@@ -14,6 +14,11 @@ ninja.tcz
 parted.tcz
 pciutils.tcz
 pixman-dev.tcz
+python3.11-dev.tcz
+python3.11-pip.tcz
+python3.11-setuptools.tcz
+python3.11-wheel.tcz
+python3.11.tcz
 raid-dm-6.12.25-piCore-v8.tcz
 udev-lib.tcz
 util-linux.tcz

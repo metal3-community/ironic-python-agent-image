@@ -213,7 +213,7 @@ USER tc
 ENV HOME="/home/tc"
 
 # Set working directory for tc user
-WORKDIR /home/tc
+WORKDIR ${HOME}
 
 # Default command
 CMD ["/bin/sh"]
@@ -221,8 +221,11 @@ CMD ["/bin/sh"]
 # Final stage - TinyIPA with pre-extracted packages
 FROM tinycore-extractor AS package-extractor
 
+ARG TARGETARCH
+ENV TARGETARCH=${TARGETARCH}
+
 # Copy the build requirements lists
-COPY build_files/ /build_files/
+COPY build_files/${TARGETARCH}/buildreqs.lst /packages.lst
 
 # Download and extract TCZ packages using predefined lists and dependency recursion
 RUN set -eux; \
@@ -300,8 +303,8 @@ RUN set -eux; \
     }; \
     \
     # Process buildreqs.lst
-    if [ -f "${BUILD_DIR}/buildreqs.lst" ]; then \
-        echo "Processing buildreqs.lst"; \
+    if [ -f /packages.lst ]; then \
+        echo "Processing packages.lst"; \
         while IFS= read -r package; do \
             if [ -n "${package}" ] && [ "${package}" != "${package#\#}" ]; then \
                 continue; \
@@ -309,20 +312,7 @@ RUN set -eux; \
             if [ -n "${package}" ]; then \
                 download_deps "${package}"; \
             fi; \
-        done < "${BUILD_DIR}/buildreqs.lst"; \
-    fi; \
-    \
-    # Process buildreqs_python3.lst
-    if [ -f "${BUILD_DIR}/buildreqs_python3.lst" ]; then \
-        echo "Processing buildreqs_python3.lst"; \
-        while IFS= read -r package; do \
-            if [ -n "${package}" ] && [ "${package}" != "${package#\#}" ]; then \
-                continue; \
-            fi; \
-            if [ -n "${package}" ]; then \
-                download_deps "${package}"; \
-            fi; \
-        done < "${BUILD_DIR}/buildreqs_python3.lst"; \
+        done < /packages.lst; \
     fi; \
     \
     # Add SSL/TLS support packages
@@ -352,14 +342,20 @@ RUN cd /tcz-packages && \
                 # Special handling for Python packages - create symlinks
                 if echo "${package_name}" | grep -q "python3"; then \
                     echo "Setting up Python environment for ${package_name}"; \
-                    if [ -f "/extracted/usr/local/bin/python3.11" ] && [ ! -f "/extracted/usr/local/bin/python3" ]; then \
-                        ln -sf python3.11 /extracted/usr/local/bin/python3; \
-                        echo "Created python3 symlink"; \
-                    fi; \
-                    if [ -f "/extracted/usr/local/bin/python3.11" ] && [ ! -f "/extracted/usr/local/bin/python" ]; then \
-                        ln -sf python3.11 /extracted/usr/local/bin/python; \
-                        echo "Created python symlink"; \
-                    fi; \
+                    for v in 11 9; do \
+                      for p in python pip; do \
+                        if [ -f "/final-extracted/usr/local/bin/${p}3.${v}" ]; then \
+                            if [ ! -f "/final-extracted/usr/local/bin/${p}3" ]; then \
+                                ln -sf "${p}3.11" "/final-extracted/usr/local/bin/${p}3"; \
+                                echo "Created ${p}3 symlink"; \
+                            fi; \
+                            if [ ! -f "/final-extracted/usr/local/bin/${p}" ]; then \
+                                ln -sf "${p}3.11" "/final-extracted/usr/local/bin/${p}"; \
+                                echo "Created ${p} symlink"; \
+                            fi; \
+                        fi; \
+                      done; \
+                    done; \
                 fi; \
                 \
                 # Mark package as installed
@@ -769,7 +765,7 @@ RUN echo "=== Attempting to download and build IPA ===" && \
 FROM tinycore-extractor AS final-extractor
 
 # Copy build_files for final requirements
-COPY build_files/ /build_files/
+COPY build_files/${TARGETARCH}/finalreqs.lst /requirements.lst
 
 # Extract final requirements packages
 RUN set -eux; \
@@ -787,11 +783,9 @@ RUN set -eux; \
     case "${TARGETARCH}" in \
         "amd64") \
             TC_ARCH="x86_64"; \
-            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         "arm64") \
             TC_ARCH="aarch64"; \
-            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         *) \
             echo "Unsupported architecture: ${TARGETARCH}"; \
@@ -799,7 +793,7 @@ RUN set -eux; \
             ;; \
     esac; \
     \
-    export TC_ARCH BUILD_DIR; \
+    export TC_ARCH; \
     TINYCORE_MIRROR_URL="http://repo.tinycorelinux.net"; \
     TC_RELEASE="16.x"; \
     \
@@ -849,8 +843,8 @@ RUN set -eux; \
     mkdir -p /tmp/deps; \
     \
     # Process finalreqs.lst
-    if [ -f "${BUILD_DIR}/finalreqs.lst" ]; then \
-        echo "Processing finalreqs.lst"; \
+    if [ -f /requirements.lst ]; then \
+        echo "Processing requirements.lst"; \
         while IFS= read -r package; do \
             if [ -n "${package}" ] && [ "${package}" != "${package#\#}" ]; then \
                 continue; \
@@ -858,20 +852,7 @@ RUN set -eux; \
             if [ -n "${package}" ]; then \
                 download_deps "${package}"; \
             fi; \
-        done < "${BUILD_DIR}/finalreqs.lst"; \
-    fi; \
-    \
-    # Process finalreqs_python3.lst
-    if [ -f "${BUILD_DIR}/finalreqs_python3.lst" ]; then \
-        echo "Processing finalreqs_python3.lst"; \
-        while IFS= read -r package; do \
-            if [ -n "${package}" ] && [ "${package}" != "${package#\#}" ]; then \
-                continue; \
-            fi; \
-            if [ -n "${package}" ]; then \
-                download_deps "${package}"; \
-            fi; \
-        done < "${BUILD_DIR}/finalreqs_python3.lst"; \
+        done < /requirements.lst; \
     fi; \
     \
     # Add SSH support
@@ -895,23 +876,20 @@ RUN cd /tcz-packages && \
                 \
                 # Special handling for Python packages - create symlinks
                 if echo "${package_name}" | grep -q "python3"; then \
-                    echo "Setting up Python environment for ${package_name}"; \
-                    if [ -f "/final-extracted/usr/local/bin/python3.11" ] && [ ! -f "/final-extracted/usr/local/bin/python3" ]; then \
-                        ln -sf python3.11 /final-extracted/usr/local/bin/python3; \
-                        echo "Created python3 symlink"; \
-                    fi; \
-                    if [ -f "/final-extracted/usr/local/bin/python3.11" ] && [ ! -f "/final-extracted/usr/local/bin/python" ]; then \
-                        ln -sf python3.11 /final-extracted/usr/local/bin/python; \
-                        echo "Created python symlink"; \
-                    fi; \
-                    if [ -f "/final-extracted/usr/local/bin/python3.9" ] && [ ! -f "/final-extracted/usr/local/bin/python3" ]; then \
-                        ln -sf python3.9 /final-extracted/usr/local/bin/python3; \
-                        echo "Created python3 symlink"; \
-                    fi; \
-                    if [ -f "/final-extracted/usr/local/bin/python3.9" ] && [ ! -f "/final-extracted/usr/local/bin/python" ]; then \
-                        ln -sf python3.9 /final-extracted/usr/local/bin/python; \
-                        echo "Created python symlink"; \
-                    fi; \
+                  for v in 11 9; do \
+                    for p in python pip; do \
+                      if [ -f "/final-extracted/usr/local/bin/${p}3.${v}" ]; then \
+                          if [ ! -f "/final-extracted/usr/local/bin/${p}3" ]; then \
+                              ln -sf "${p}3.11" "/final-extracted/usr/local/bin/${p}3"; \
+                              echo "Created ${p}3 symlink"; \
+                          fi; \
+                          if [ ! -f "/final-extracted/usr/local/bin/${p}" ]; then \
+                              ln -sf "${p}3.11" "/final-extracted/usr/local/bin/${p}"; \
+                              echo "Created ${p} symlink"; \
+                          fi; \
+                      fi; \
+                    done; \
+                  done; \
                 fi; \
                 \
                 # Mark package as installed
@@ -936,21 +914,18 @@ USER root
 COPY --from=final-extractor /final-extracted /
 
 # Copy built tools from build stage (create directories for missing tools)
-RUN mkdir -p /tmp/qemu-utils /tmp/lshw-installed /tmp/biosdevname-installed /tmp/ipmitool /tmp/wheelhouse /tmp/ipa-source
+RUN mkdir -p /tmp/wheelhouse /tmp/ipa-source
 
 # Copy any built tools that exist (will be empty directories if builds failed)
-COPY --from=tinyipa-build /tmp/qemu-utils /tmp/qemu-utils/
-COPY --from=tinyipa-build /tmp/lshw-installed /tmp/lshw-installed/
+COPY --from=tinyipa-build /tmp/qemu-utils/* /
+COPY --from=tinyipa-build /tmp/lshw-installed/* /
 # COPY --from=tinyipa-build /tmp/biosdevname-installed /tmp/biosdevname-installed/
-COPY --from=tinyipa-build /tmp/ipmitool /tmp/ipmitool/
+COPY --from=tinyipa-build /tmp/ipmitool/* /
 COPY --from=tinyipa-build /tmp/wheels /tmp/wheelhouse/
 COPY --from=tinyipa-build /tmp/ipa-source /tmp/ipa-source/
 
 # Copy build files individually
-COPY build_files/bootlocal.sh /opt/
-COPY build_files/dhcp.sh /etc/init.d/dhcp.sh
-COPY build_files/modprobe.conf /etc/modprobe.conf
-COPY build_files/ntpdate /bin/ntpdate
+COPY overlay /
 COPY build_files/${TARGETARCH}/fakeuname /tmp/overrides/uname
 
 # Set up final TinyIPA environment
@@ -990,52 +965,46 @@ RUN echo "=== Setting up final TinyIPA environment ===" && \
     fi && \
     \
     # Set up Python environment
-    PYTHON_EXE="" && \
+    PIP_EXE="" && \
     echo "Searching for Python executable..." && \
-    for candidate in /usr/local/bin/python3.11 /usr/bin/python3.11 /usr/local/bin/python3.9 /usr/bin/python3.9 /usr/local/bin/python3 /usr/bin/python3 /usr/local/bin/python /usr/bin/python; do \
+    for candidate in /usr/local/bin/pip3.11 /usr/bin/pip3.11 /usr/local/bin/pip3.9 /usr/bin/pip3.9 /usr/local/bin/pip3 /usr/bin/pip3 /usr/local/bin/pip /usr/bin/pip; do \
         echo "Checking candidate: $candidate"; \
         if [ -f "$candidate" ]; then \
-            PYTHON_EXE="$candidate"; \
-            echo "Found Python executable: $PYTHON_EXE"; \
+            PIP_EXE="$candidate"; \
+            echo "Found Pip executable: $PIP_EXE"; \
             break; \
         fi; \
     done && \
     \
     # Also search in likely locations
-    if [ -z "$PYTHON_EXE" ]; then \
+    if [ -z "$PIP_EXE" ]; then \
         echo "Searching in additional locations..."; \
-        find /usr -name "python*" -type f -executable 2>/dev/null | head -10; \
-        # Try a basic python command
-        if command -v python3 >/dev/null 2>&1; then \
-            PYTHON_EXE="$(command -v python3)"; \
-            echo "Found python3 via command: $PYTHON_EXE"; \
-        elif command -v python >/dev/null 2>&1; then \
-            PYTHON_EXE="$(command -v python)"; \
-            echo "Found python via command: $PYTHON_EXE"; \
+        find /usr -name "pip*" -type f -executable 2>/dev/null | head -10; \
+        # Try a basic pip command
+        if command -v pip3 >/dev/null 2>&1; then \
+            PIP_EXE="$(command -v pip3)"; \
+            echo "Found pip3 via command: $PIP_EXE"; \
+        elif command -v pip >/dev/null 2>&1; then \
+            PIP_EXE="$(command -v pip)"; \
+            echo "Found python via command: $PIP_EXE"; \
         fi; \
     fi && \
     \
-    if [ -n "$PYTHON_EXE" ]; then \
-        echo "Using Python executable: $PYTHON_EXE"; \
+    if [ -n "$PIP_EXE" ]; then \
+        echo "Using Python executable: $PIP_EXE"; \
         # Create symlinks like finalise-tinyipa.sh does
-        if [ ! -f /usr/local/bin/python3 ]; then \
-            ln -sf "$PYTHON_EXE" /usr/local/bin/python3; \
-            echo "Created python3 symlink"; \
+        if [ ! -f /usr/local/bin/pip3 ]; then \
+            ln -sf "$PIP_EXE" /usr/local/bin/pip3; \
+            echo "Created pip3 symlink"; \
         fi; \
-        if [ ! -f /usr/local/bin/python ]; then \
-            ln -sf "$PYTHON_EXE" /usr/local/bin/python; \
-            echo "Created python symlink"; \
+        if [ ! -f /usr/local/bin/pip ]; then \
+            ln -sf "$PIP_EXE" /usr/local/bin/pip; \
+            echo "Created pip symlink"; \
         fi; \
         \
-        # Install pip and IPA like finalise-tinyipa.sh does
-        echo "Setting up pip..."; \
-        $PYTHON_EXE -m ensurepip 2>/dev/null || echo "ensurepip not available, continuing..."; \
-        if command -v pip3 >/dev/null 2>&1; then \
-            pip3 install --upgrade pip wheel || echo "pip upgrade failed, continuing..."; \
-        fi; \
         if [ "$(ls -A /tmp/wheelhouse 2>/dev/null)" ]; then \
             echo "Attempting to install IPA from wheels..."; \
-            $PYTHON_EXE -m pip install --no-index --find-links=file:///tmp/wheelhouse --pre ironic_python_agent || echo "IPA installation failed - continuing without it"; \
+            $PIP_EXE install --no-index --find-links=file:///tmp/wheelhouse --pre ironic_python_agent || echo "IPA installation failed - continuing without it"; \
         else \
             echo "No wheel packages found - skipping IPA installation"; \
         fi; \
@@ -1092,7 +1061,7 @@ RUN echo "=== Setting up final TinyIPA environment ===" && \
     fi && \
     \
     # Clean up
-    rm -rf /tmp/qemu-utils /tmp/lshw-installed /tmp/biosdevname-installed /tmp/ipmitool /tmp/wheelhouse /tmp/build_files /tmp/ipa-source && \
+    rm -rf /tmp/wheelhouse /tmp/ipa-source && \
     \
     # Change ownership back to tc user
     chown -R tc:staff /home/tc
@@ -1100,18 +1069,67 @@ RUN echo "=== Setting up final TinyIPA environment ===" && \
 # Create the final initramfs and prepare kernel
 RUN echo "=== Creating final initramfs ===" && \
     VMLINUZ_NAME="vmlinuz64" && \
-    # Create initramfs using the same method as finalise-tinyipa.sh
-    mkdir -p /output && \
-    cd / && \
-    find . -path ./output -prune -o -type f -print | cpio -o -H newc | gzip -9 > /output/tinyipa.gz && \
-    echo "Created initramfs: /output/tinyipa.gz" && \
+    # Create a clean directory for the initramfs contents
+    mkdir -p /tmp/initramfs-root /output && \
     \
-    # Copy kernel from tinycore-extractor stage
-    echo "Copying kernel..." && \
-    ls -la "/rootfs/${VMLINUZ_NAME}" 2>/dev/null || echo "Kernel not found at /rootfs/${VMLINUZ_NAME}"
+    # Copy the entire filesystem to the initramfs directory, excluding problematic paths
+    echo "Copying filesystem to initramfs directory..." && \
+    cd / && \
+    tar --exclude='./proc/*' \
+        --exclude='./sys/*' \
+        --exclude='./dev/*' \
+        --exclude='./tmp/initramfs-root' \
+        --exclude='./output' \
+        --exclude='./tmp/tcloop' \
+        --exclude='./tmp/builtin' \
+        --exclude='./mnt' \
+        --exclude='./media' \
+        --exclude='./run' \
+        --exclude='./var/run' \
+        --exclude='./var/lock' \
+        -cf - . | tar -xf - -C /tmp/initramfs-root && \
+    \
+    # Create essential directories in the initramfs
+    mkdir -p /tmp/initramfs-root/proc \
+             /tmp/initramfs-root/sys \
+             /tmp/initramfs-root/dev \
+             /tmp/initramfs-root/tmp \
+             /tmp/initramfs-root/mnt \
+             /tmp/initramfs-root/media \
+             /tmp/initramfs-root/run \
+             /tmp/initramfs-root/var/run \
+             /tmp/initramfs-root/var/lock \
+             /tmp/initramfs-root/tmp/tcloop \
+             /tmp/initramfs-root/tmp/builtin && \
+    \
+    # Create the initramfs archive
+    echo "Creating initramfs archive..." && \
+    cd /tmp/initramfs-root && \
+    if ! find . | cpio -o -H newc 2>/dev/null | gzip -9 > /output/ironic-python-agent.initramfs; then \
+        echo "Error: Failed to create initramfs archive"; \
+        echo "Checking initramfs root contents..."; \
+        ls -la /tmp/initramfs-root/; \
+        echo "Checking for incomplete files..."; \
+        find /tmp/initramfs-root -type f -exec ls -la {} \; | head -20; \
+        exit 1; \
+    fi && \
+    \
+    # Verify the output file exists and has reasonable size
+    if [[ ! -f /output/ironic-python-agent.initramfs ]] || [[ $(stat -c%s /output/ironic-python-agent.initramfs) -lt 1000000 ]]; then \
+        echo "Error: Initramfs file is missing or too small"; \
+        ls -la /output/ironic-python-agent.initramfs || echo "File does not exist"; \
+        exit 1; \
+    fi && \
+    \
+    echo "Created initramfs: $(stat -c%s /output/ironic-python-agent.initramfs) bytes" && \
+    \
+    # Clean up the temporary directory
+    rm -rf /tmp/initramfs-root && \
+    \
+    echo "Initramfs creation completed successfully"
 
 # Copy kernel from extractor stage
-COPY --from=tinycore-extractor /rootfs/vmlinuz64 /output/tinyipa.vmlinuz
+COPY --from=tinycore-extractor /rootfs/vmlinuz64 /output/ironic-python-agent.vmlinuz
 
 # Switch back to tc user
 USER tc

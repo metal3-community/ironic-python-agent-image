@@ -22,32 +22,32 @@ http://mirrors.163.com/tinycorelinux
 TINYCORE_MIRROR_URL=${TINYCORE_MIRROR_URL:-}
 
 function probe_url {
-    wget -q --spider --tries 1 --timeout 10 "$1" 2>&1
+  wget -q --spider --tries 1 --timeout 10 "$1" 2>&1
 }
 
 function choose_tc_mirror {
+  if [[ -z "${TINYCORE_MIRROR_URL}" ]]; then
+    for url in ${TC_MIRRORS}; do
+      echo "Checking Tiny Core Linux mirror ${url}"
+      if probe_url "${url}"; then
+        echo "Check succeeded: ${url} is responding."
+        TINYCORE_MIRROR_URL=${url}
+        break
+      else
+        echo "Check failed: ${url} is not responding"
+      fi
+    done
     if [[ -z "${TINYCORE_MIRROR_URL}" ]]; then
-        for url in ${TC_MIRRORS}; do
-            echo "Checking Tiny Core Linux mirror ${url}"
-            if probe_url "${url}" ; then
-                echo "Check succeeded: ${url} is responding."
-                TINYCORE_MIRROR_URL=${url}
-                break
-            else
-                echo "Check failed: ${url} is not responding"
-            fi
-        done
-        if [[ -z "${TINYCORE_MIRROR_URL}" ]]; then
-            echo "Failed to find working Tiny Core Linux mirror"
-            exit 1
-        fi
-    else
-        echo "Probing provided Tiny Core Linux mirror ${TINYCORE_MIRROR_URL}"
-        if probe_url "${TINYCORE_MIRROR_URL}" ; then
-            echo "Check succeeded: ${TINYCORE_MIRROR_URL} is responding."
-        else
-            echo "Check failed: ${TINYCORE_MIRROR_URL} is not responding"
-            exit 1
-        fi
+      echo "Failed to find working Tiny Core Linux mirror"
+      exit 1
     fi
+  else
+    echo "Probing provided Tiny Core Linux mirror ${TINYCORE_MIRROR_URL}"
+    if probe_url "${TINYCORE_MIRROR_URL}"; then
+      echo "Check succeeded: ${TINYCORE_MIRROR_URL} is responding."
+    else
+      echo "Check failed: ${TINYCORE_MIRROR_URL} is not responding"
+      exit 1
+    fi
+  fi
 }

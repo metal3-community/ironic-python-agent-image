@@ -17,22 +17,22 @@ TINYIPA_UDEV_SETTLE_TIMEOUT=${TINYIPA_UDEV_SETTLE_TIMEOUT:-60}
 # Detect architecture if not explicitly set
 ARCH=${ARCH:-$(uname -m)}
 case "${ARCH}" in
-    "x86_64")
-        CORE_NAME="corepure64"
-        VMLINUZ_NAME="vmlinuz64"
-        # For x86_64, modify ldconfig to handle x86-64 libraries
-        LDCONFIG_MOD=true
-        ;;
-    "aarch64"|"arm64")
-        CORE_NAME="corepure64"
-        VMLINUZ_NAME="vmlinuz64"
-        # For arm64, ldconfig modification is not needed
-        LDCONFIG_MOD=false
-        ;;
-    *)
-        echo "Unsupported architecture: ${ARCH}"
-        exit 1
-        ;;
+"x86_64")
+  CORE_NAME="corepure64"
+  VMLINUZ_NAME="vmlinuz64"
+  # For x86_64, modify ldconfig to handle x86-64 libraries
+  LDCONFIG_MOD=true
+  ;;
+"aarch64" | "arm64")
+  CORE_NAME="corepure64"
+  VMLINUZ_NAME="vmlinuz64"
+  # For arm64, ldconfig modification is not needed
+  LDCONFIG_MOD=false
+  ;;
+*)
+  echo "Unsupported architecture: ${ARCH}"
+  exit 1
+  ;;
 esac
 
 echo "Finalising tinyipa for architecture: ${ARCH}"
@@ -40,56 +40,59 @@ echo "Finalising tinyipa for architecture: ${ARCH}"
 echo "Finalising tinyipa:"
 
 if [[ -n "${PYTHON_EXTRA_SOURCES_DIR_LIST}" ]]; then
-    IFS="," read -ra PKGDIRS <<< "${PYTHON_EXTRA_SOURCES_DIR_LIST}"
-    for PKGDIR in "${PKGDIRS[@]}"; do
-        PKG=$(cd "${PKGDIR}" ; python setup.py --name)
-    done
+  IFS="," read -ra PKGDIRS <<<"${PYTHON_EXTRA_SOURCES_DIR_LIST}"
+  for PKGDIR in "${PKGDIRS[@]}"; do
+    PKG=$(
+      cd "${PKGDIR}"
+      python setup.py --name
+    )
+  done
 fi
 
-if ${AUTHORIZE_SSH} ; then
-    echo "Validating location of public SSH key"
-    if [[ -n "${SSH_PUBLIC_KEY}" ]]; then
-        if [[ -f "${SSH_PUBLIC_KEY}" ]]; then
-            _found_ssh_key="${SSH_PUBLIC_KEY}"
-        fi
-    else
-        if [[ -f "${HOME}/.ssh/id_rsa.pub" ]]; then
-            _found_ssh_key="${HOME}/.ssh/id_rsa.pub"
-        fi
+if ${AUTHORIZE_SSH}; then
+  echo "Validating location of public SSH key"
+  if [[ -n "${SSH_PUBLIC_KEY}" ]]; then
+    if [[ -f "${SSH_PUBLIC_KEY}" ]]; then
+      _found_ssh_key="${SSH_PUBLIC_KEY}"
     fi
+  else
+    if [[ -f "${HOME}/.ssh/id_rsa.pub" ]]; then
+      _found_ssh_key="${HOME}/.ssh/id_rsa.pub"
+    fi
+  fi
 
-    if [[ -z "${_found_ssh_key}" ]]; then
-        echo "Failed to find neither provided nor default SSH key"
-        exit 1
-    fi
+  if [[ -z "${_found_ssh_key}" ]]; then
+    echo "Failed to find neither provided nor default SSH key"
+    exit 1
+  fi
 fi
 
 # Let's umount proc in case the old finalise process went sideways and
 # it's still mounted
 if grep -qs "${FINALDIR}/proc" /proc/mounts; then
-    umount "${FINALDIR}/proc"
+  umount "${FINALDIR}/proc"
 fi
 
 # Remove the old final chroot dir with all its content before starting a new
 # finalise process
 if [[ -d "${FINALDIR}" ]]; then
-    rm -rf "${FINALDIR}"
+  rm -rf "${FINALDIR}"
 fi
 
 mkdir "${FINALDIR}"
 
 # Extract rootfs from .gz file
-( cd "${FINALDIR}" && zcat "${WORKDIR}/build_files/${CORE_NAME}.gz" | cpio -i -H newc -d )
+(cd "${FINALDIR}" && zcat "${WORKDIR}/build_files/${CORE_NAME}.gz" | cpio -i -H newc -d)
 
 # Setup Final Dir
 setup_tce "${DST_DIR}"
 
 # Modify ldconfig for x86-64 only
 if ${LDCONFIG_MOD}; then
-    ${CHROOT_CMD} cp /sbin/ldconfig /sbin/ldconfigold
-    printf '#!/bin/sh\n/sbin/ldconfigold $@ | sed -r "s/libc6|ELF/libc6,x86-64/"' | ${CHROOT_CMD} tee -a /sbin/ldconfignew
-    ${CHROOT_CMD} cp /sbin/ldconfignew /sbin/ldconfig
-    ${CHROOT_CMD} chmod u+x /sbin/ldconfig
+  ${CHROOT_CMD} cp /sbin/ldconfig /sbin/ldconfigold
+  printf '#!/bin/sh\n/sbin/ldconfigold $@ | sed -r "s/libc6|ELF/libc6,x86-64/"' | ${CHROOT_CMD} tee -a /sbin/ldconfignew
+  ${CHROOT_CMD} cp /sbin/ldconfignew /sbin/ldconfig
+  ${CHROOT_CMD} chmod u+x /sbin/ldconfig
 fi
 
 # Copy python wheels from build to final dir
@@ -102,10 +105,10 @@ cp "${WORKDIR}"/build_files/qemu-utils.* "${FINALDIR}/tmp/builtin/optional"
 cp "${WORKDIR}"/build_files/lshw.* "${FINALDIR}/tmp/builtin/optional"
 
 if ${TINYIPA_REQUIRE_BIOSDEVNAME}; then
-    cp "${WORKDIR}"/build_files/biosdevname.* "${FINALDIR}"/tmp/builtin/optional
+  cp "${WORKDIR}"/build_files/biosdevname.* "${FINALDIR}"/tmp/builtin/optional
 fi
 if ${TINYIPA_REQUIRE_IPMITOOL}; then
-    cp "${WORKDIR}"/build_files/ipmitool.* "${FINALDIR}"/tmp/builtin/optional
+  cp "${WORKDIR}"/build_files/ipmitool.* "${FINALDIR}"/tmp/builtin/optional
 fi
 
 mkdir "${FINALDIR}/tmp/overrides"
@@ -121,46 +124,45 @@ chown "${TC}:${STAFF}" "${FINALDIR}/usr/local/tce.installed"
 
 # Process build requirements
 while read -r line; do
-    if [[ -n "${line}" ]]; then download_and_extract_tcz "${line}" "${DST_DIR}"; fi
-done < "${WORKDIR}"/build_files/"${FINAL_REQS}"
+  if [[ -n "${line}" ]]; then download_and_extract_tcz "${line}" "${DST_DIR}"; fi
+done <"${WORKDIR}"/build_files/"${FINAL_REQS}"
 
 while read -r line; do
-    if [[ -n "${line}" ]]; then download_and_extract_tcz "${line}" "${DST_DIR}"; fi
-done < "${WORKDIR}"/build_files/"${PY_REQS}"
+  if [[ -n "${line}" ]]; then download_and_extract_tcz "${line}" "${DST_DIR}"; fi
+done <"${WORKDIR}"/build_files/"${PY_REQS}"
 
-if ${INSTALL_SSH} ; then
-    # Install and configure bare minimum for SSH access
-    download_and_extract_tcz openssh.tcz "${DST_DIR}"
-    # Configure OpenSSH
-    ${CHROOT_CMD} cp /usr/local/etc/ssh/sshd_config.example /usr/local/etc/ssh/sshd_config
-    echo "PasswordAuthentication no" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
-    # Generate and configure host keys - RSA, Ed25519
-    # NOTE(pas-ha) ECDSA host key will still be re-generated fresh on every image boot
-    ${CHROOT_CMD} ssh-keygen -t rsa -N "" -f /usr/local/etc/ssh/ssh_host_rsa_key
-    ${CHROOT_CMD} ssh-keygen -t ed25519 -N "" -f /usr/local/etc/ssh/ssh_host_ed25519_key
-    echo "HostKey /usr/local/etc/ssh/ssh_host_rsa_key" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
-    echo "HostKey /usr/local/etc/ssh/ssh_host_ed25519_key" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
+if ${INSTALL_SSH}; then
+  # Install and configure bare minimum for SSH access
+  download_and_extract_tcz openssh.tcz "${DST_DIR}"
+  # Configure OpenSSH
+  ${CHROOT_CMD} cp /usr/local/etc/ssh/sshd_config.example /usr/local/etc/ssh/sshd_config
+  echo "PasswordAuthentication no" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
+  # Generate and configure host keys - RSA, Ed25519
+  # NOTE(pas-ha) ECDSA host key will still be re-generated fresh on every image boot
+  ${CHROOT_CMD} ssh-keygen -t rsa -N "" -f /usr/local/etc/ssh/ssh_host_rsa_key
+  ${CHROOT_CMD} ssh-keygen -t ed25519 -N "" -f /usr/local/etc/ssh/ssh_host_ed25519_key
+  echo "HostKey /usr/local/etc/ssh/ssh_host_rsa_key" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
+  echo "HostKey /usr/local/etc/ssh/ssh_host_ed25519_key" | ${CHROOT_CMD} tee -a /usr/local/etc/ssh/sshd_config
 
-    # setup user and SSH keys
-    if ${AUTHORIZE_SSH}; then
-        ${CHROOT_CMD} mkdir -p /home/tc
-        ${CHROOT_CMD} chown -R tc.staff /home/tc
-        ${TC_CHROOT_CMD} mkdir -p /home/tc/.ssh
-        cat "${_found_ssh_key}" | ${TC_CHROOT_CMD} tee /home/tc/.ssh/authorized_keys || true
-        ${CHROOT_CMD} chown tc.staff /home/tc/.ssh/authorized_keys
-        ${TC_CHROOT_CMD} chmod 600 /home/tc/.ssh/authorized_keys
-    fi
+  # setup user and SSH keys
+  if ${AUTHORIZE_SSH}; then
+    ${CHROOT_CMD} mkdir -p /home/tc
+    ${CHROOT_CMD} chown -R tc.staff /home/tc
+    ${TC_CHROOT_CMD} mkdir -p /home/tc/.ssh
+    cat "${_found_ssh_key}" | ${TC_CHROOT_CMD} tee /home/tc/.ssh/authorized_keys || true
+    ${CHROOT_CMD} chown tc.staff /home/tc/.ssh/authorized_keys
+    ${TC_CHROOT_CMD} chmod 600 /home/tc/.ssh/authorized_keys
+  fi
 fi
 
 extract_tcz /tmp/builtin/optional/qemu-utils.tcz "${DST_DIR}"
 extract_tcz /tmp/builtin/optional/lshw.tcz "${DST_DIR}"
 if ${TINYIPA_REQUIRE_BIOSDEVNAME}; then
-    extract_tcz /tmp/builtin/optional/biosdevname.tcz "${DST_DIR}"
+  extract_tcz /tmp/builtin/optional/biosdevname.tcz "${DST_DIR}"
 fi
 if ${TINYIPA_REQUIRE_IPMITOOL}; then
-    extract_tcz /tmp/builtin/optional/ipmitool.tcz "${DST_DIR}"
+  extract_tcz /tmp/builtin/optional/ipmitool.tcz "${DST_DIR}"
 fi
-
 
 # Ensure tinyipa picks up installed kernel modules
 ${CHROOT_CMD} depmod -a "$("${WORKDIR}"/build_files/fakeuname -r)"
@@ -172,18 +174,21 @@ ${CHROOT_CMD} "${TINYIPA_PYTHON_EXE}" -m ensurepip
 ${CHROOT_CMD} "${TINYIPA_PYTHON_EXE}" -m pip install --upgrade pip=="${PIP_VERSION}" wheel
 
 # If flag is set install python now
-if ${BUILD_AND_INSTALL_TINYIPA} ; then
-    if [[ -n "${PYTHON_EXTRA_SOURCES_DIR_LIST}" ]]; then
-        IFS="," read -ra PKGDIRS <<< "${PYTHON_EXTRA_SOURCES_DIR_LIST}"
-        for PKGDIR in "${PKGDIRS[@]}"; do
-            PKG=$(cd "${PKGDIR}" ; python setup.py --name)
-            ${CHROOT_CMD} "${TINYIPA_PYTHON_EXE}" -m pip install --no-index --find-links=file:///tmp/wheelhouse --pre "${PKG}"
-        done
-    fi
+if ${BUILD_AND_INSTALL_TINYIPA}; then
+  if [[ -n "${PYTHON_EXTRA_SOURCES_DIR_LIST}" ]]; then
+    IFS="," read -ra PKGDIRS <<<"${PYTHON_EXTRA_SOURCES_DIR_LIST}"
+    for PKGDIR in "${PKGDIRS[@]}"; do
+      PKG=$(
+        cd "${PKGDIR}"
+        python setup.py --name
+      )
+      ${CHROOT_CMD} "${TINYIPA_PYTHON_EXE}" -m pip install --no-index --find-links=file:///tmp/wheelhouse --pre "${PKG}"
+    done
+  fi
 
-    ${CHROOT_CMD} "${TINYIPA_PYTHON_EXE}" -m pip install --no-index --find-links=file:///tmp/wheelhouse --pre ironic_python_agent
+  ${CHROOT_CMD} "${TINYIPA_PYTHON_EXE}" -m pip install --no-index --find-links=file:///tmp/wheelhouse --pre ironic_python_agent
 
-    rm -rf "${FINALDIR}/tmp/wheelhouse"
+  rm -rf "${FINALDIR}/tmp/wheelhouse"
 fi
 
 # Unmount /proc and clean up everything
@@ -217,7 +222,7 @@ ${CHROOT_CMD} touch /var/lib/hwclock/adjtime
 ${CHROOT_CMD} chmod 640 /var/lib/hwclock/adjtime
 
 if ${PYOPTIMIZE_TINYIPA}; then
-    echo "WARNING: Precompilation is not compatible with oslo.privsep and is being ignored."
+  echo "WARNING: Precompilation is not compatible with oslo.privsep and is being ignored."
 fi
 
 # Delete unnecessary Babel .dat files
@@ -232,28 +237,28 @@ set +x
 echo "Symlink all from /usr/local/sbin to /usr/sbin"
 pushd "${FINALDIR}/usr/local/sbin"
 for target in *; do
-    if [[ ! -f "${FINALDIR}/usr/sbin/${target}" ]]; then
-        ${CHROOT_CMD} ln -sf "/usr/local/sbin/${target}" "/usr/sbin/${target}"
-    fi
+  if [[ ! -f "${FINALDIR}/usr/sbin/${target}" ]]; then
+    ${CHROOT_CMD} ln -sf "/usr/local/sbin/${target}" "/usr/sbin/${target}"
+  fi
 done
 popd
 echo "Symlink all from /usr/local/bin to /usr/bin"
 # this also includes symlinking Python to the place expected by Ansible
 pushd "${FINALDIR}/usr/local/bin"
 for target in *; do
-    if [[ ! -f "${FINALDIR}/usr/bin/${target}" ]]; then
-        ${CHROOT_CMD} ln -sf "/usr/local/bin/${target}" "/usr/bin/${target}"
-    fi
+  if [[ ! -f "${FINALDIR}/usr/bin/${target}" ]]; then
+    ${CHROOT_CMD} ln -sf "/usr/local/bin/${target}" "/usr/bin/${target}"
+  fi
 done
 popd
 # symlink bash to sh if /bin/sh is not there
 if [[ ! -f "${FINALDIR}/bin/sh" ]]; then
-    ${CHROOT_CMD} ln -sf "/bin/bash" "/bin/sh"
+  ${CHROOT_CMD} ln -sf "/bin/bash" "/bin/sh"
 fi
 set -x
 
 # Rebuild build directory into gz file
-( cd "${FINALDIR}" && find . | cpio -o -H newc | gzip -9 > "${WORKDIR}/tinyipa${BRANCH_EXT}.gz" )
+(cd "${FINALDIR}" && find . | cpio -o -H newc | gzip -9 >"${WORKDIR}/tinyipa${BRANCH_EXT}.gz")
 
 # Copy vmlinuz to new name
 cp "${WORKDIR}/build_files/${VMLINUZ_NAME}" "${WORKDIR}/tinyipa${BRANCH_EXT}.vmlinuz"
@@ -265,7 +270,7 @@ tar czf "tinyipa${BRANCH_EXT}.tar.gz" "tinyipa${BRANCH_EXT}.gz" "tinyipa${BRANCH
 # the tinyipa ones in order to provide a way to verify the integrity of the tinyipa
 # builds.
 for f in tinyipa"${BRANCH_EXT}".{gz,tar.gz,vmlinuz}; do
-    sha256sum "${f}" > "${f}.sha256"
+  sha256sum "${f}" >"${f}.sha256"
 done
 
 # Output files with sizes created by this script

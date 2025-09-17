@@ -18,4 +18,3 @@ for DEVICE in ${NETDEVICES}; do
     sleep 1
   fi
 done
-

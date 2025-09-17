@@ -1,0 +1,146 @@
+#!/bin/sh
+
+extract_tcz() {
+  tcz_file=$1
+  extract_dir=$2
+
+  package="$(basename "${tcz_file}")"
+  package_name="${package%%.tcz}"
+
+  # Extract using unsquashfs
+  if unsquashfs -f -d "${extract_dir}" "${tcz_file}"; then
+    echo "Extracted ${package} successfully"
+
+    # Copy contents to extract_dir, preserving permissions and structure
+    if [ -d "${extract_dir}" ]; then
+      echo "Successfully installed ${package}"
+
+      for f in "${extract_dir}/usr/local/share/${package_name}"/*/*.tar.gz; do
+        if [ -f "${f}" ]; then
+          echo "Extracting additional archive ${f} for ${package}"
+          tar -xzf "${f}" -C "${extract_dir}/"
+        fi
+      done
+
+      # Special handling for Python packages
+      case "${package}" in
+      python3.*)
+        echo "Setting up Python environment for ${package}"
+
+        # Create python3 symlink if python3.11 exists
+        if [ -f "${extract_dir}/usr/local/bin/python3.11" ] && [ ! -f "${extract_dir}/usr/local/bin/python3" ]; then
+          ln -sf python3.11 "${extract_dir}/usr/local/bin/python3"
+          echo "Created python3 symlink"
+        fi
+
+        # Also create python symlink if it doesn't exist
+        if [ -f "${extract_dir}/usr/local/bin/python3.11" ] && [ ! -f "${extract_dir}/usr/local/bin/python" ]; then
+          ln -sf python3.11 "${extract_dir}/usr/local/bin/python"
+          echo "Created python symlink"
+        fi
+
+        # Set up library paths
+        if [ -d "${extract_dir}/usr/local/lib" ]; then
+          # Add library path to ld.so.conf if it doesn't exist
+          mkdir -p "${extract_dir}/etc"
+          if ! grep -q "/usr/local/lib" "${extract_dir}/etc/ld.so.conf" 2>/dev/null; then
+            echo "/usr/local/lib" >>"${extract_dir}/etc/ld.so.conf"
+            echo "Added /usr/local/lib to ld.so.conf"
+          fi
+        fi
+
+        # Update ldconfig cache if ldconfig exists
+        if [ -f "${extract_dir}/sbin/ldconfig" ]; then
+          chroot "${extract_dir}" /sbin/ldconfig 2>/dev/null || true
+        fi
+        ;;
+      *)
+        # No special handling for other packages
+        ;;
+      esac
+
+      # Mark package as installed
+      mkdir -p "${extract_dir}/usr/local/tce.installed"
+      touch "${extract_dir}/usr/local/tce.installed/${package_name}"
+      return 0
+    else
+      echo "No extracted content found for ${package}"
+    fi
+  else
+    echo "Failed to extract ${package} with unsquashfs"
+  fi
+
+  return 0
+}
+
+download_and_extract_tcz() {
+  package=$1
+  extract_dir=$2
+  attempts=1
+
+  # Replace KERNEL placeholder with the correct version string for the architecture
+  # Use sed for POSIX-compatible string replacement
+  package=$(echo "${package}" | sed "s/KERNEL/${KERNEL_VERSION}/g")
+
+  tcz_url="${TINYCORE_MIRROR_URL}/${TC_RELEASE}/${TC_ARCH}/tcz/${package}"
+  dep_url="${TINYCORE_MIRROR_URL}/${TC_RELEASE}/${TC_ARCH}/tcz/${package}.dep"
+  download_retry_max=${DOWNLOAD_RETRY_MAX:-5}
+  download_retry_delay=${DOWNLOAD_RETRY_DELAY:-10}
+
+  # Check if package is already installed
+  package_name=${package%%.tcz}
+  if [ -f "${extract_dir}/usr/local/tce.installed/${package_name}" ]; then
+    echo "Package ${package} already installed, skipping"
+    return 0
+  fi
+
+  # First, download and install dependencies unless explicitly skipped
+  echo "Checking dependencies for ${package}"
+  temp_dep_file="/tmp/deps_${package_name}_$$"
+  if wget --timeout=30 --tries=1 -q "${dep_url}" -O "${temp_dep_file}" 2>/dev/null; then
+    echo "Found dependencies for ${package}"
+    while IFS= read -r dep_package; do
+      # Check if line is not empty and doesn't start with #
+      if [ -n "${dep_package}" ] && [ "${dep_package#\#}" = "${dep_package}" ]; then
+        echo "Installing dependency: ${dep_package}"
+        download_and_extract_tcz "${dep_package}" "${extract_dir}"
+      fi
+    done <"${temp_dep_file}"
+    rm -f "${temp_dep_file}"
+  else
+    echo "No dependencies found for ${package}"
+  fi
+
+  echo "Downloading and extracting package ${package}"
+  while [ "${attempts}" -le "${download_retry_max}" ]; do
+    tmp_dir_root="/tmp"
+    # Create temporary directory for this package
+    temp_dir="${tmp_dir_root}/tcz_${package%%.tcz}_$$"
+    mkdir -p "${temp_dir}"
+
+    # Download the TCZ package
+    if wget --timeout=30 --tries=3 -q "${tcz_url}" -O "${temp_dir}/${package}"; then
+      echo "Downloaded ${package} successfully"
+
+      if extract_tcz "${temp_dir}/${package}" "${extract_dir}"; then
+        rm -rf "${temp_dir}"
+        return 0
+      fi
+    else
+      echo "Failed to download ${package} from ${tcz_url}"
+    fi
+
+    rm -rf "${temp_dir}"
+    echo "Package installation attempt ${attempts} failed for ${package}, retrying in ${download_retry_delay} seconds..."
+    sleep "${download_retry_delay}"
+    attempts=$((attempts + 1))
+  done
+
+  echo "Failed to install ${package} after ${download_retry_max} attempts"
+  return 1
+}
+
+# Example usage:
+# download_and_extract_tcz "python3.11.tcz" "/path/to/extract_dir
+
+download_and_extract_tcz "$1" "${2:-/extracted}"

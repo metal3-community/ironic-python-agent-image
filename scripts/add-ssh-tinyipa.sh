@@ -33,81 +33,79 @@ SSH_RSA_KEY_PATH="/usr/local/etc/ssh/ssh_host_rsa_key"
 SSH_ED25519_KEY_PATH="/usr/local/etc/ssh/ssh_host_ed25519_key"
 
 function validate_params {
-    echo "Validating location of public SSH key"
-    if [[ -n "${SSH_PUBLIC_KEY}" ]]; then
-        if [[ -r "${SSH_PUBLIC_KEY}" ]]; then
-            _found_ssh_key="${SSH_PUBLIC_KEY}"
-        fi
-    else
-        if [[ -r "${HOME}/.ssh/id_rsa.pub" ]]; then
-            _found_ssh_key="${HOME}/.ssh/id_rsa.pub"
-        fi
+  echo "Validating location of public SSH key"
+  if [[ -n "${SSH_PUBLIC_KEY}" ]]; then
+    if [[ -r "${SSH_PUBLIC_KEY}" ]]; then
+      _found_ssh_key="${SSH_PUBLIC_KEY}"
     fi
+  else
+    if [[ -r "${HOME}/.ssh/id_rsa.pub" ]]; then
+      _found_ssh_key="${HOME}/.ssh/id_rsa.pub"
+    fi
+  fi
 
-    if [[ -z "${_found_ssh_key}" ]]; then
-        echo "Failed to find neither provided nor default SSH key"
-        exit 1
-    fi
+  if [[ -z "${_found_ssh_key}" ]]; then
+    echo "Failed to find neither provided nor default SSH key"
+    exit 1
+  fi
 }
 
 function get_tinyipa {
-    if [[ -z "${TINYIPA_RAMDISK_FILE}" ]]; then
-        mkdir -p "${WORKDIR}"/build_files/cache
-        cd "${WORKDIR}"/build_files/cache
-        wget -N https://tarballs.openstack.org/ironic-python-agent/tinyipa/files/tinyipa"${BRANCH_EXT}".gz
-        TINYIPA_RAMDISK_FILE="${WORKDIR}/build_files/cache/tinyipa${BRANCH_EXT}.gz"
-    fi
+  if [[ -z "${TINYIPA_RAMDISK_FILE}" ]]; then
+    mkdir -p "${WORKDIR}"/build_files/cache
+    cd "${WORKDIR}"/build_files/cache
+    wget -N https://tarballs.openstack.org/ironic-python-agent/tinyipa/files/tinyipa"${BRANCH_EXT}".gz
+    TINYIPA_RAMDISK_FILE="${WORKDIR}/build_files/cache/tinyipa${BRANCH_EXT}.gz"
+  fi
 }
 
 function unpack_ramdisk {
 
-    if [[ -d "${REBUILDDIR}" ]]; then
-        rm -rf "${REBUILDDIR}"
-    fi
+  if [[ -d "${REBUILDDIR}" ]]; then
+    rm -rf "${REBUILDDIR}"
+  fi
 
-    mkdir -p "${REBUILDDIR}"
+  mkdir -p "${REBUILDDIR}"
 
-    # Extract rootfs from .gz file
-    ( cd "${REBUILDDIR}" && zcat "${TINYIPA_RAMDISK_FILE}" | cpio -i -H newc -d || true )
+  # Extract rootfs from .gz file
+  (cd "${REBUILDDIR}" && zcat "${TINYIPA_RAMDISK_FILE}" | cpio -i -H newc -d || true)
 
 }
 
 function install_ssh {
-    if [[ ! -f "${REBUILDDIR}${SSHD_CONFIG_PATH}" ]]; then
-        # tinyipa was built without SSH server installed
-        # Install and configure bare minimum for SSH access
-        download_and_extract_tcz openssh.tcz "${DST_DIR}"
-        # Configure OpenSSH
-        ${CHROOT_CMD} cp "${SSHD_CONFIG_PATH}".orig "${SSHD_CONFIG_PATH}"
-        echo "PasswordAuthentication no" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
-        # Generate and configure host keys - RSA, Ed25519
-        # NOTE(pas-ha) ECDSA host key will still be re-generated fresh on every image boot
-        ${CHROOT_CMD} ssh-keygen -q -t rsa -N "" -f "${SSH_RSA_KEY_PATH}"
-        ${CHROOT_CMD} ssh-keygen -q -t ed25519 -N "" -f "${SSH_ED25519_KEY_PATH}"
-        echo "HostKey ${SSH_RSA_KEY_PATH}" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
-        echo "HostKey ${SSH_ED25519_KEY_PATH}" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
-    fi
+  if [[ ! -f "${REBUILDDIR}${SSHD_CONFIG_PATH}" ]]; then
+    # tinyipa was built without SSH server installed
+    # Install and configure bare minimum for SSH access
+    download_and_extract_tcz openssh.tcz "${DST_DIR}"
+    # Configure OpenSSH
+    ${CHROOT_CMD} cp "${SSHD_CONFIG_PATH}".orig "${SSHD_CONFIG_PATH}"
+    echo "PasswordAuthentication no" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
+    # Generate and configure host keys - RSA, Ed25519
+    # NOTE(pas-ha) ECDSA host key will still be re-generated fresh on every image boot
+    ${CHROOT_CMD} ssh-keygen -q -t rsa -N "" -f "${SSH_RSA_KEY_PATH}"
+    ${CHROOT_CMD} ssh-keygen -q -t ed25519 -N "" -f "${SSH_ED25519_KEY_PATH}"
+    echo "HostKey ${SSH_RSA_KEY_PATH}" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
+    echo "HostKey ${SSH_ED25519_KEY_PATH}" | ${CHROOT_CMD} tee -a "${SSHD_CONFIG_PATH}"
+  fi
 
-    # setup new user SSH keys anyway
-    ${CHROOT_CMD} mkdir -p /home/tc
-    ${CHROOT_CMD} chown -R tc.staff /home/tc
-    ${TC_CHROOT_CMD} mkdir -p /home/tc/.ssh
-    cat "${_found_ssh_key}" | ${TC_CHROOT_CMD} tee /home/tc/.ssh/authorized_keys || true
-    ${CHROOT_CMD} chown tc.staff /home/tc/.ssh/authorized_keys
-    ${TC_CHROOT_CMD} chmod 600 /home/tc/.ssh/authorized_keys
+  # setup new user SSH keys anyway
+  ${CHROOT_CMD} mkdir -p /home/tc
+  ${CHROOT_CMD} chown -R tc.staff /home/tc
+  ${TC_CHROOT_CMD} mkdir -p /home/tc/.ssh
+  cat "${_found_ssh_key}" | ${TC_CHROOT_CMD} tee /home/tc/.ssh/authorized_keys || true
+  ${CHROOT_CMD} chown tc.staff /home/tc/.ssh/authorized_keys
+  ${TC_CHROOT_CMD} chmod 600 /home/tc/.ssh/authorized_keys
 }
-
 
 function rebuild_ramdisk {
-    # Rebuild build directory into gz file
-    ansible_basename="ansible-$(basename "${TINYIPA_RAMDISK_FILE}")"
-    ( cd "${REBUILDDIR}" && find . | cpio -o -H newc | gzip -9 > "${WORKDIR}/${ansible_basename}" || true )
-    # Output file created by this script and its size
-    cd "${WORKDIR}"
-    echo "Produced files:"
-    du -h "${ansible_basename}"
+  # Rebuild build directory into gz file
+  ansible_basename="ansible-$(basename "${TINYIPA_RAMDISK_FILE}")"
+  (cd "${REBUILDDIR}" && find . | cpio -o -H newc | gzip -9 >"${WORKDIR}/${ansible_basename}" || true)
+  # Output file created by this script and its size
+  cd "${WORKDIR}"
+  echo "Produced files:"
+  du -h "${ansible_basename}"
 }
-
 
 validate_params
 get_tinyipa

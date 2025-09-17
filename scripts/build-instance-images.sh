@@ -15,7 +15,7 @@ sudo mkfs."${fs_type}" -F "${PARTIMG}" -L "root"
 sudo mount -o loop "${PARTIMG}" "${DST_DIR}/"
 
 # Extract rootfs from .gz file
-( cd "${DST_DIR}" && zcat "${WORKDIR}/build_files/corepure64.gz" | sudo cpio -i -H newc -d )
+(cd "${DST_DIR}" && zcat "${WORKDIR}/build_files/corepure64.gz" | sudo cpio -i -H newc -d)
 
 setup_tce "${DST_DIR}"
 

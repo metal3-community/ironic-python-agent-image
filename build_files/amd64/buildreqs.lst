@@ -19,6 +19,11 @@ ninja.tcz
 parted.tcz
 pciutils.tcz
 pixman-dev.tcz
+py3.9-wheel.tcz
+python3.9-dev.tcz
+python3.9-pip.tcz
+python3.9-setuptools.tcz
+python3.9.tcz
 raid-dm-6.12.11-tinycore64.tcz
 scsi-6.12.11-tinycore64.tcz
 udev-lib.tcz

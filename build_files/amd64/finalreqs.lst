@@ -4,8 +4,9 @@ dmidecode.tcz
 dosfstools.tcz
 efibootmgr.tcz
 efivar.tcz
-filesystems-6.12.11-tinycore64.tcz
+expat2.tcz
 file.tcz
+filesystems-6.12.11-tinycore64.tcz
 gdisk.tcz
 glib2.tcz
 haveged.tcz
@@ -18,8 +19,12 @@ ntpclient.tcz
 parted.tcz
 pciutils.tcz
 popt.tcz
+py3.9-wheel.tcz
+python3.9-pip.tcz
+python3.9.tcz
 raid-dm-6.12.11-tinycore64.tcz
 scsi-6.12.11-tinycore64.tcz
 smartmontools.tcz
 udev-lib.tcz
 util-linux.tcz
+qemu.tcz
