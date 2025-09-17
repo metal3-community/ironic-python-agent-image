@@ -26,85 +26,85 @@ fi
 
 while :; do
   case $1 in
-    -a)
-      OPT_A=true
-      shift
-      ;;
-    -s)
-      OPT_S=true
-      shift
-      ;;
-    -n)
-      OPT_N=true
-      shift
-      ;;
-    -r)
-      OPT_R=true
-      shift
-      ;;
-    -p)
-      OPT_P=true
-      shift
-      ;;
-    -v)
-      OPT_V=true
-      shift
-      ;;
-    -m)
-      OPT_M=true
-      shift
-      ;;
-    -i)
-      OPT_I=true
-      shift
-      ;;
-    -o)
-      OPT_O=true
-      shift
-      ;;
-    -rs)
-      OPT_R=true
-      OPT_S=true
-      shift
-      ;;
-    *)
-      if [ ! -z "$1" ]; then
-        echo "uname -asnrpvmio"
-        exit 1
-      fi
-      break
-     ;;
+  -a)
+    OPT_A=true
+    shift
+    ;;
+  -s)
+    OPT_S=true
+    shift
+    ;;
+  -n)
+    OPT_N=true
+    shift
+    ;;
+  -r)
+    OPT_R=true
+    shift
+    ;;
+  -p)
+    OPT_P=true
+    shift
+    ;;
+  -v)
+    OPT_V=true
+    shift
+    ;;
+  -m)
+    OPT_M=true
+    shift
+    ;;
+  -i)
+    OPT_I=true
+    shift
+    ;;
+  -o)
+    OPT_O=true
+    shift
+    ;;
+  -rs)
+    OPT_R=true
+    OPT_S=true
+    shift
+    ;;
+  *)
+    if [ ! -z "$1" ]; then
+      echo "uname -asnrpvmio"
+      exit 1
+    fi
+    break
+    ;;
   esac
 done
 
 if ${OPT_A}; then
-    echo "${S} ${N} $R $V $M $O"
-    exit 0
+  echo "${S} ${N} $R $V $M $O"
+  exit 0
 fi
 
 string=''
-if $OPT_S; then
-    string="$string $S"
+if ${OPT_S}; then
+  string="${string} $S"
 fi
 if $OPT_N; then
-    string="$string $N"
+  string="$string $N"
 fi
 if $OPT_R; then
-    string="$string $R"
+  string="$string $R"
 fi
 if $OPT_P; then
-    string="$string $P"
+  string="$string $P"
 fi
 if $OPT_V; then
-    string="$string $V"
+  string="$string $V"
 fi
 if $OPT_M; then
-    string="$string $M"
+  string="$string $M"
 fi
 if $OPT_I; then
-    string="$string $I"
+  string="$string $I"
 fi
 if $OPT_O; then
-    string="$string $O"
+  string="$string $O"
 fi
-echo "${string}"
+echo "${string}" | xargs

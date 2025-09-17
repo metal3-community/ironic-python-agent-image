@@ -13,5 +13,6 @@ squashfs-root
 syslinux*
 newiso
 *.log
-tmp
 .DS_Store
+*.img
+/tmp
