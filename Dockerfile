@@ -20,6 +20,7 @@ RUN if [ -z "${TARGETARCH}" ]; then \
 ARG TINYCORE_VERSION=16
 ARG TINYCORE_MIRROR_URL=http://tinycorelinux.net/${TINYCORE_VERSION}.x
 ARG TC_RELEASE=${TINYCORE_VERSION}.x
+ARG KERNEL_VERSION=6.12.25
 
 # Install required tools for extraction
 RUN apt-get update && apt-get install -y \
@@ -38,12 +39,8 @@ WORKDIR /build
 RUN set -eux; \
     # Set TARGETARCH for legacy builder compatibility
     if [ -z "${TARGETARCH:-}" ]; then \
-      case "$(uname -m)" in \
-        x86_64) TARGETARCH=amd64 ;; \
-        aarch64) TARGETARCH=arm64 ;; \
-        armv7l) TARGETARCH=arm ;; \
-        *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;; \
-      esac; \
+      echo "TARGETARCH not set, detecting..."; \
+      exit 1; \
     fi; \
     case "${TARGETARCH}" in \
         "amd64") \
@@ -104,12 +101,8 @@ RUN set -eux; \
             mcopy -i boot.fat ::* /tmp/picore_boot -s; \
             bsdtar -C /rootfs -xf root.ext4; \
             \
-            for f in /tmp/picore_boot/kernel*.img; do \
-                if [ -f "${f}" ]; then \
-                    KERNEL_FILE="${f}"; \
-                    break; \
-                fi; \
-            done; \
+            KERNEL_VERSION_SHORT="$(echo ${KERNEL_VERSION} | tr -d '.')"; \
+            KERNEL_FILE="/tmp/picore_boot/kernel${KERNEL_VERSION_SHORT}v8.img"; \
             if [ ! -f "${KERNEL_FILE}" ]; then \
                 echo "ERROR: Could not find kernel file in boot partition"; \
                 ls -la /tmp/picore_boot/; \
@@ -123,7 +116,7 @@ RUN set -eux; \
             gzip -dc "/tmp/picore_boot/rootfs-piCore64-${TINYCORE_VERSION}.0.gz" | bsdtar -C /rootfs -xf -; \
             \
             # Extract modules if available
-            MODS_FILE="/tmp/picore_boot/modules-6.12.25-piCore-v8.gz"; \
+            MODS_FILE="/tmp/picore_boot/modules-${KERNEL_VERSION}-piCore-v8.gz"; \
             if [ -f "${MODS_FILE}" ]; then \
                 echo "Extracting kernel modules..."; \
                 gzip -dc "${MODS_FILE}" | bsdtar -C /rootfs -xf -; \
@@ -192,7 +185,6 @@ RUN mkdir -p /proc /sys /dev /tmp /var/log /etc /tmp/tcloop /tmp/builtin/optiona
     ln -sf /tmp/builtin /etc/sysconfig/tcedir && \
     chown -R "tc:staff" /tmp/builtin /tmp/tcloop && \
     chmod 755 /tmp/builtin /tmp/tcloop && \
-    echo "tc ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
     mkdir -p /usr/local/tce.installed && \
     mkdir -p /usr/local/etc/pki/certs && \
     mkdir -p /home/tc && \
@@ -244,9 +236,11 @@ RUN set -eux; \
     case "${TARGETARCH}" in \
         "amd64") \
             TC_ARCH="x86_64"; \
+            KERNEL="6.12.25-piCore-v8"; \
             ;; \
         "arm64") \
             TC_ARCH="aarch64"; \
+            KERNEL="6.12.11-tinycore64"; \
             ;; \
         *) \
             echo "Unsupported architecture: ${TARGETARCH}"; \
@@ -264,6 +258,14 @@ RUN set -eux; \
     # Function to download dependencies recursively
     download_deps() { \
         local package=$1; \
+        \
+        # Replace kernel packages with specific version
+        if echo "${package}" | grep -q -- "-KERNEL\.tcz$"; then \
+            local base_name="${package%-KERNEL.tcz}"; \
+            package="${base_name}-${KERNEL}.tcz"; \
+            echo "Replaced kernel package: ${1} -> ${package}"; \
+        fi; \
+        \
         local processed_file="/tmp/deps/processed_${package%%.tcz}"; \
         \
         # Skip if already processed
@@ -370,6 +372,9 @@ RUN cd /tcz-packages && \
 # Build stage - TinyIPA with pre-extracted packages and custom builds
 FROM tinycore-base AS tinyipa-build
 
+ARG TARGETARCH
+ENV TARGETARCH=${TARGETARCH}
+
 # Switch to root for setup operations
 USER root
 
@@ -379,7 +384,7 @@ COPY --from=package-extractor /extracted /
 # Build dependencies and versions
 ARG QEMU_RELEASE="9.2.4"
 ARG LSHW_RELEASE="B.02.20"
-ARG BIOSDEVNAME_RELEASE="0.7.2"
+ARG BIOSDEVNAME_RELEASE="0.7.3"
 ARG IPMITOOL_GIT_HASH="19d78782d795d0cf4ceefe655f616210c9143e62"
 ARG TINYIPA_REQUIRE_BIOSDEVNAME=false
 ARG TINYIPA_REQUIRE_IPMITOOL=true
@@ -418,7 +423,7 @@ RUN echo "=== Setting up build environment ===" && \
     for candidate in /usr/local/bin/pip3.11 /usr/bin/pip3.11 /usr/local/bin/pip3.9 /usr/bin/pip3.9 /usr/local/bin/pip3 /usr/bin/pip3; do \
         if [ -f "$candidate" ]; then \
             PIP_EXE="$candidate"; \
-            echo "Found Python executable: $PYTHON_EXE"; \
+            echo "Found Pip executable: $PIP_EXE"; \
             break; \
         fi; \
     done && \
@@ -431,6 +436,11 @@ RUN echo "=== Setting up build environment ===" && \
         if [ ! -f /usr/local/bin/python ]; then \
             ln -sf "$(basename "$PYTHON_EXE")" /usr/local/bin/python; \
             echo "Created python symlink"; \
+        fi; \
+        # Install essential Python packages for building
+        if [ -n "$PIP_EXE" ] && [ "${TARGETARCH}" = "amd64" ]; then \
+            echo "Installing essential Python packages for building..."; \
+            $PIP_EXE install tomli setuptools-scm packaging typing-extensions || echo "Warning: Failed to install some Python packages"; \
         fi; \
     else \
         echo "ERROR: No Python executable found in base system or extracted packages"; \
@@ -471,136 +481,46 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     git config --global http.sslVerify true && \
     echo "Configured git SSL settings" && \
     \
-    mkdir -p /tmp/downloads /tmp/qemu-utils /tmp/lshw-installed /tmp/biosdevname-installed /tmp/ipmitool && \
-    cd /tmp/downloads && \
-    \
-    # Set success flags
-    LSHW_SUCCESS=false && \
-    BIOSDEVNAME_SUCCESS=false && \
-    \
-    # Download source packages with retry logic
-    echo "Downloading source packages..." && \
-    \
-    # Download lshw with retry and mirror fallback
-    attempts=1; \
-    LSHW_MIRRORS="https://github.com/lyonel/lshw/archive/refs/tags/${LSHW_RELEASE}.tar.gz https://www.ezix.org/software/files/lshw-${LSHW_RELEASE}.tar.gz"; \
-    while [ "${attempts}" -le "${max_attempts}" ]; do \
-        for mirror_url in ${LSHW_MIRRORS}; do \
-            echo "Trying LSHW download from: ${mirror_url}"; \
-            LSHW_FILENAME="lshw-${LSHW_RELEASE}.tar.gz"; \
-            if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" -O "${LSHW_FILENAME}" 2>/dev/null; then \
-                echo "Successfully downloaded lshw on attempt ${attempts} from ${mirror_url}"; \
-                LSHW_SUCCESS=true; \
-                break; \
-            fi; \
-            echo "Download failed from ${mirror_url}"; \
-        done; \
-        if [ "${LSHW_SUCCESS}" = "true" ]; then \
-            break; \
-        fi; \
-        echo "Download attempt ${attempts} failed for lshw, retrying..."; \
-        attempts=$((attempts + 1)); \
-        if [ "${attempts}" -gt "${max_attempts}" ]; then \
-            echo "Failed to download lshw after ${max_attempts} attempts - skipping"; \
-            break; \
-        fi; \
-        sleep 5; \
-    done && \
-    \
-    # Download biosdevname if required
-    if [ "${TINYIPA_REQUIRE_BIOSDEVNAME}" = "true" ]; then \
-        attempts=1; \
-        BIOSDEVNAME_MIRRORS="https://linux.dell.com/biosdevname/biosdevname-${BIOSDEVNAME_RELEASE}/biosdevname-${BIOSDEVNAME_RELEASE}.tar.gz https://github.com/dell/biosdevname/archive/refs/tags/v${BIOSDEVNAME_RELEASE}.tar.gz"; \
-        while [ "${attempts}" -le "${max_attempts}" ]; do \
-            for mirror_url in ${BIOSDEVNAME_MIRRORS}; do \
-                echo "Trying BIOSDEVNAME download from: ${mirror_url}"; \
-                BIOSDEVNAME_FILENAME="biosdevname-${BIOSDEVNAME_RELEASE}.tar.gz"; \
-                if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" -O "${BIOSDEVNAME_FILENAME}" 2>/dev/null; then \
-                    echo "Successfully downloaded biosdevname on attempt ${attempts} from ${mirror_url}"; \
-                    BIOSDEVNAME_SUCCESS=true; \
-                    break; \
-                fi; \
-                echo "Download failed from ${mirror_url}"; \
-            done; \
-            if [ "${BIOSDEVNAME_SUCCESS}" = "true" ]; then \
-                break; \
-            fi; \
-            echo "Download attempt ${attempts} failed for biosdevname, retrying..."; \
-            attempts=$((attempts + 1)); \
-            if [ "${attempts}" -gt "${max_attempts}" ]; then \
-                echo "Failed to download biosdevname after ${max_attempts} attempts - skipping"; \
-                break; \
-            fi; \
-            sleep 5; \
-        done; \
-    fi && \
-    \
-    # Build tools if downloads succeeded
-    echo "=== Building downloaded tools ===" && \
-    \
-    # Debug: List all files to see what was actually downloaded
-    echo "=== DEBUG: Files in downloads directory ===" && \
-    ls -la . && \
-    echo "=== END DEBUG ===" && \
-    \
-    # Build lshw if downloaded
-    if [ "${LSHW_SUCCESS}" = "true" ]; then \
-        echo "Building lshw..." && \
-        # Use the specific filename we downloaded
-        LSHW_ARCHIVE="lshw-${LSHW_RELEASE}.tar.gz" && \
-        if [ -f "${LSHW_ARCHIVE}" ]; then \
-            echo "Found LSHW archive: ${LSHW_ARCHIVE}" && \
-            tar -xzf "${LSHW_ARCHIVE}" && \
-            # Find the extracted directory (handle GitHub vs official naming)
-            LSHW_DIR=$(find . -maxdepth 1 -type d -name "*lshw*" | head -1) && \
-            if [ -n "${LSHW_DIR}" ]; then \
-                cd "${LSHW_DIR}" && \
-                make -j$(nproc) && \
-                make PREFIX=/tmp/lshw-installed/usr/local install && \
-                echo "lshw build completed" && \
-                cd /tmp/downloads; \
-            else \
-                echo "ERROR: Could not find lshw source directory"; \
-                LSHW_SUCCESS=false; \
-            fi; \
-        else \
-            echo "ERROR: LSHW archive not found: ${LSHW_ARCHIVE}"; \
-            LSHW_SUCCESS=false; \
-        fi; \
+    mkdir -p /tmp/downloads /tmp/qemu-utils /tmp/lshw-installed /tmp/biosdevname-installed /tmp/ipmitool
+
+# Install biosdevname only on x86_64 as it contains x86-specific assembly code
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+        echo "=== Installing BIOSDEVNAME (x86_64 only) ==="; \
+        mkdir -p biosdevname; \
+        cd biosdevname; \
+        wget --no-check-certificate --timeout=30 --tries=3 -q https://github.com/dell/biosdevname/archive/refs/tags/v${BIOSDEVNAME_RELEASE}.tar.gz -O- | tar -xz --strip-components 1; \
+        bash autogen.sh --prefix=/tmp/biosdevname-installed/usr/local; \
+        make -j$(nproc); \
+        make install; \
+        cd -; \
+        rm -rf biosdevname; \
+        echo "biosdevname build completed"; \
     else \
-        echo "Skipping lshw build due to download failure"; \
-    fi && \
-    \
-    # Build biosdevname if downloaded and required
-    if [ "${TINYIPA_REQUIRE_BIOSDEVNAME}" = "true" ] && [ "${BIOSDEVNAME_SUCCESS}" = "true" ]; then \
-        echo "Building biosdevname..." && \
-        # Use the specific filename we downloaded
-        BIOSDEVNAME_ARCHIVE="biosdevname-${BIOSDEVNAME_RELEASE}.tar.gz" && \
-        if [ -f "${BIOSDEVNAME_ARCHIVE}" ]; then \
-            echo "Found BIOSDEVNAME archive: ${BIOSDEVNAME_ARCHIVE}" && \
-            tar -xzf "${BIOSDEVNAME_ARCHIVE}" && \
-            # Find the extracted directory
-            BIOSDEVNAME_DIR=$(find . -maxdepth 1 -type d -name "*biosdevname*" | head -1) && \
-            if [ -n "${BIOSDEVNAME_DIR}" ]; then \
-                cd "${BIOSDEVNAME_DIR}" && \
-                ./configure --prefix=/tmp/biosdevname-installed/usr/local && \
-                make -j$(nproc) && \
-                make install && \
-                echo "biosdevname build completed" && \
-                cd /tmp/downloads; \
-            else \
-                echo "ERROR: Could not find biosdevname source directory"; \
-                BIOSDEVNAME_SUCCESS=false; \
-            fi; \
-        else \
-            echo "ERROR: BIOSDEVNAME archive not found: ${BIOSDEVNAME_ARCHIVE}"; \
-            BIOSDEVNAME_SUCCESS=false; \
-        fi; \
-    else \
-        echo "Skipping biosdevname build (not required or download failed)"; \
-    fi && \
-    \
-    echo "Custom tools build phase completed (some may have been skipped due to network issues)"
+        echo "=== Skipping BIOSDEVNAME on ${TARGETARCH} (x86-specific assembly code) ==="; \
+        mkdir -p /tmp/biosdevname-installed; \
+    fi
+# wget --no-check-certificate --timeout=30 --tries=3 -q https://github.com/lyonel/lshw/archive/refs/tags/B.02.20.zip -O- | bsdtar -x -f -
+# wget --no-check-certificate --timeout=30 --tries=3 -q https://github.com/lyonel/lshw/archive/refs/tags/B.02.19.tar.gz -O- | tar -xz
+# https://github.com/lyonel/lshw/archive/refs/tags/B.02.20.tar.gz
+RUN echo "=== Installing LSHW ===" && \
+    mkdir -p lshw && \
+    cd lshw && \
+    wget --no-check-certificate --timeout=30 --tries=3 -q https://github.com/lyonel/lshw/archive/refs/tags/${LSHW_RELEASE}.tar.gz -O- | tar -xz --strip-components 1 && \
+    git config --global user.name "TinyIPA Builder" && \
+    git config --global user.email "tinyipa@appkins.io" && \
+    git init && \
+    git add . && \
+    git commit -m "Initial lshw import" && \
+    make -j$(nproc) && \
+    install -p -d -m 0755 /tmp/lshw-installed/usr/local/sbin && \
+    install -p -m 0755 src/lshw /tmp/lshw-installed/usr/local/sbin && \
+    install -p -d -m 0755 /tmp/lshw-installed/usr/local/share/man/man1 && \
+    install -p -m 0644 src/lshw.1 /tmp/lshw-installed/usr/local/share/man/man1 && \
+    install -p -d -m 0755 /tmp/lshw-installed/usr/local/share/lshw && \
+    install -p -m 0644 src/pci.ids src/usb.ids src/oui.txt src/manuf.txt src/pnp.ids src/pnpid.txt /tmp/lshw-installed/usr/local/share/lshw && \
+    cd - && \
+    rm -rf lshw && \
+    echo "lshw build completed"
 
 RUN echo "=== Installing QEMU Utils ===" && \
     mkdir -p qemu && \
@@ -676,6 +596,9 @@ RUN echo "=== Attempting to download and build IPA ===" && \
 # Final stage - TinyIPA runtime with minimal packages
 FROM tinycore-extractor AS final-extractor
 
+ARG TARGETARCH
+ENV TARGETARCH=${TARGETARCH}
+
 # Copy build_files for final requirements
 COPY build_files/${TARGETARCH}/finalreqs.lst /requirements.lst
 COPY build_files/${TARGETARCH}/fakeuname /bin/uname
@@ -696,9 +619,11 @@ RUN set -eux; \
     case "${TARGETARCH}" in \
         "amd64") \
             TC_ARCH="x86_64"; \
+            KERNEL="6.12.25-piCore-v8"; \
             ;; \
         "arm64") \
             TC_ARCH="aarch64"; \
+            KERNEL="6.12.11-tinycore64"; \
             ;; \
         *) \
             echo "Unsupported architecture: ${TARGETARCH}"; \
@@ -716,6 +641,14 @@ RUN set -eux; \
     # Function to download dependencies recursively
     download_deps() { \
         local package=$1; \
+        \
+        # Replace kernel packages with specific version
+        if echo "${package}" | grep -q -- "-KERNEL\.tcz$"; then \
+            local base_name="${package%-KERNEL.tcz}"; \
+            package="${base_name}-${KERNEL}.tcz"; \
+            echo "Replaced kernel package: ${1} -> ${package}"; \
+        fi; \
+        \
         local processed_file="/tmp/deps/processed_${package%%.tcz}"; \
         \
         # Skip if already processed
@@ -838,8 +771,8 @@ RUN mkdir -p /tmp/wheelhouse /tmp/ipa-source
 
 # Copy any built tools that exist (will be empty directories if builds failed)
 COPY --from=tinyipa-build /tmp/qemu-utils /
-COPY --from=tinyipa-build /tmp/lshw-installed/* /
-# COPY --from=tinyipa-build /tmp/biosdevname-installed /tmp/biosdevname-installed/
+COPY --from=tinyipa-build /tmp/lshw-installed /
+COPY --from=tinyipa-build /tmp/biosdevname-installed /
 COPY --from=tinyipa-build /tmp/ipmitool /
 COPY --from=tinyipa-build /tmp/wheels /tmp/wheelhouse/
 COPY --from=tinyipa-build /tmp/ipa-source /tmp/ipa-source/
@@ -992,7 +925,22 @@ RUN echo "=== Creating final initramfs ===" && \
              /tmp/initramfs-root/var/run \
              /tmp/initramfs-root/var/lock \
              /tmp/initramfs-root/tmp/tcloop \
-             /tmp/initramfs-root/tmp/builtin && \
+             /tmp/initramfs-root/tmp/builtin \
+             /tmp/initramfs-root/dev/input \
+             /tmp/initramfs-root/dev/net \
+             /tmp/initramfs-root/dev/pts \
+             /tmp/initramfs-root/dev/shm \
+             /tmp/initramfs-root/dev/usb && \
+    \
+    ln -sf /proc/kcore /tmp/initramfs-root/dev/core && \
+    ln -sf /proc/self/fd /tmp/initramfs-root/dev/fd && \
+    ln -sf /proc/self/fd/0 /tmp/initramfs-root/dev/stdin && \
+    ln -sf /proc/self/fd/1 /tmp/initramfs-root/dev/stdout && \
+    ln -sf /proc/self/fd/2 /tmp/initramfs-root/dev/stderr && \
+    ln -sf sda1 /tmp/initramfs-root/dev/flash && \
+    ln -sf ram1 /tmp/initramfs-root/dev/ram && \
+    ln -sf vcs0 /tmp/initramfs-root/dev/vcs && \
+    ln -sf vcsa0 /tmp/initramfs-root/dev/vcsa && \
     \
     # Create the initramfs archive
     echo "Creating initramfs archive..." && \
@@ -1021,7 +969,7 @@ RUN echo "=== Creating final initramfs ===" && \
     echo "Initramfs creation completed successfully"
 
 # Copy kernel from extractor stage
-COPY --from=tinycore-extractor /rootfs/vmlinuz64 /output/ironic-python-agent.vmlinuz
+COPY --from=tinycore-extractor /rootfs/vmlinuz64 /output/ironic-python-agent.kernel
 
 # Switch back to tc user
 USER tc
