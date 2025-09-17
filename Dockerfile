@@ -226,6 +226,7 @@ ENV TARGETARCH=${TARGETARCH}
 
 # Copy the build requirements lists
 COPY build_files/${TARGETARCH}/buildreqs.lst /packages.lst
+COPY build_files/${TARGETARCH}/fakeuname /bin/uname
 
 # Download and extract TCZ packages using predefined lists and dependency recursion
 RUN set -eux; \
@@ -243,11 +244,9 @@ RUN set -eux; \
     case "${TARGETARCH}" in \
         "amd64") \
             TC_ARCH="x86_64"; \
-            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         "arm64") \
             TC_ARCH="aarch64"; \
-            BUILD_DIR="/build_files/${TARGETARCH}"; \
             ;; \
         *) \
             echo "Unsupported architecture: ${TARGETARCH}"; \
@@ -476,40 +475,11 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     cd /tmp/downloads && \
     \
     # Set success flags
-    QEMU_SUCCESS=false && \
     LSHW_SUCCESS=false && \
     BIOSDEVNAME_SUCCESS=false && \
-    IPMITOOL_SUCCESS=false && \
     \
     # Download source packages with retry logic
     echo "Downloading source packages..." && \
-    \
-    # Download qemu with retry and mirror fallback
-    attempts=1; \
-    max_attempts=3; \
-    QEMU_MIRRORS="https://github.com/qemu/qemu/archive/refs/tags/v${QEMU_RELEASE}.tar.gz"; \
-    while [ "${attempts}" -le "${max_attempts}" ]; do \
-        for mirror_url in ${QEMU_MIRRORS}; do \
-            echo "Trying QEMU download from: ${mirror_url}"; \
-            QEMU_FILENAME="qemu-${QEMU_RELEASE}.tar.gz"; \
-            if wget --no-check-certificate --timeout=30 --tries=2 "${mirror_url}" -O "${QEMU_FILENAME}" 2>/dev/null; then \
-                echo "Successfully downloaded qemu on attempt ${attempts} from ${mirror_url}"; \
-                QEMU_SUCCESS=true; \
-                break; \
-            fi; \
-            echo "Download failed from ${mirror_url}"; \
-        done; \
-        if [ "${QEMU_SUCCESS}" = "true" ]; then \
-            break; \
-        fi; \
-        echo "Download attempt ${attempts} failed for qemu, retrying..."; \
-        attempts=$((attempts + 1)); \
-        if [ "${attempts}" -gt "${max_attempts}" ]; then \
-            echo "Failed to download qemu after ${max_attempts} attempts - skipping"; \
-            break; \
-        fi; \
-        sleep 5; \
-    done && \
     \
     # Download lshw with retry and mirror fallback
     attempts=1; \
@@ -565,33 +535,6 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
         done; \
     fi && \
     \
-    # Clone ipmitool if required
-    if [ "${TINYIPA_REQUIRE_IPMITOOL}" = "true" ]; then \
-        attempts=1; \
-        while [ "${attempts}" -le "${max_attempts}" ]; do \
-            echo "Trying to clone ipmitool on attempt ${attempts}"; \
-            # Make sure we're in the downloads directory and clone to a specific subdirectory
-            cd /tmp/downloads && \
-            rm -rf ipmitool-src && \
-            if git clone --depth 1 --config http.sslVerify=false https://github.com/ipmitool/ipmitool.git ipmitool-src 2>/dev/null; then \
-                cd ipmitool-src && \
-                git reset "${IPMITOOL_GIT_HASH}" --hard 2>/dev/null && \
-                cd /tmp/downloads && \
-                echo "Successfully cloned ipmitool on attempt ${attempts}"; \
-                IPMITOOL_SUCCESS=true; \
-                break; \
-            fi; \
-            echo "Clone attempt ${attempts} failed for ipmitool, retrying..."; \
-            rm -rf ipmitool-src; \
-            attempts=$((attempts + 1)); \
-            if [ "${attempts}" -gt "${max_attempts}" ]; then \
-                echo "Failed to clone ipmitool after ${max_attempts} attempts - skipping"; \
-                break; \
-            fi; \
-            sleep 5; \
-        done; \
-    fi && \
-    \
     # Build tools if downloads succeeded
     echo "=== Building downloaded tools ===" && \
     \
@@ -599,41 +542,6 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
     echo "=== DEBUG: Files in downloads directory ===" && \
     ls -la . && \
     echo "=== END DEBUG ===" && \
-    \
-    # Build qemu-utils if downloaded
-    if [ "${QEMU_SUCCESS}" = "true" ]; then \
-        echo "Building qemu-utils..." && \
-        # Find any qemu-related archive file
-        QEMU_ARCHIVE=$(ls -1 *qemu*.tar.gz 2>/dev/null | head -1) && \
-        echo "Found QEMU archive: ${QEMU_ARCHIVE}" && \
-        if [ -n "${QEMU_ARCHIVE}" ] && [ -f "${QEMU_ARCHIVE}" ]; then \
-            echo "Extracting QEMU archive: ${QEMU_ARCHIVE}" && \
-            if echo "${QEMU_ARCHIVE}" | grep -q "\.tar\.xz$"; then \
-                tar -xf "${QEMU_ARCHIVE}"; \
-            else \
-                tar -xzf "${QEMU_ARCHIVE}"; \
-            fi && \
-            # Find the extracted directory
-            QEMU_DIR=$(find . -maxdepth 1 -type d -name "*qemu*" | head -1) && \
-            if [ -n "${QEMU_DIR}" ]; then \
-                cd "${QEMU_DIR}" && \
-                ./configure --disable-system --enable-tools --target-list="" && \
-                make -j$(nproc) qemu-img && \
-                mkdir -p /tmp/qemu-utils/usr/local/bin && \
-                cp qemu-img /tmp/qemu-utils/usr/local/bin/ && \
-                echo "qemu-utils build completed" && \
-                cd /tmp/downloads; \
-            else \
-                echo "ERROR: Could not find QEMU source directory"; \
-                QEMU_SUCCESS=false; \
-            fi; \
-        else \
-            echo "ERROR: No QEMU archive files found"; \
-            QEMU_SUCCESS=false; \
-        fi; \
-    else \
-        echo "Skipping qemu-utils build due to download failure"; \
-    fi && \
     \
     # Build lshw if downloaded
     if [ "${LSHW_SUCCESS}" = "true" ]; then \
@@ -692,26 +600,30 @@ RUN echo "=== Attempting to download and build custom tools ===" && \
         echo "Skipping biosdevname build (not required or download failed)"; \
     fi && \
     \
-    # Build ipmitool if cloned and required
-    if [ "${TINYIPA_REQUIRE_IPMITOOL}" = "true" ] && [ "${IPMITOOL_SUCCESS}" = "true" ]; then \
-        echo "Building ipmitool..." && \
-        if [ -d "ipmitool-src" ]; then \
-            cd ipmitool-src && \
-            ./bootstrap && \
-            ./configure --prefix=/tmp/ipmitool/usr/local && \
-            make -j$(nproc) && \
-            make install && \
-            echo "ipmitool build completed" && \
-            cd /tmp/downloads; \
-        else \
-            echo "ERROR: ipmitool-src directory not found"; \
-            IPMITOOL_SUCCESS=false; \
-        fi; \
-    else \
-        echo "Skipping ipmitool build (not required or clone failed)"; \
-    fi && \
-    \
     echo "Custom tools build phase completed (some may have been skipped due to network issues)"
+
+RUN echo "=== Installing QEMU Utils ===" && \
+    mkdir -p qemu && \
+    cd qemu && \
+    wget --no-check-certificate --timeout=30 --tries=3 -q https://github.com/qemu/qemu/archive/refs/tags/v10.1.0.tar.gz -O- | tar -xz --strip-components 1 && \
+    ./configure --disable-system --enable-tools --target-list="" --prefix=/tmp/qemu-utils/usr/local && \
+    make -j$(nproc) qemu-img && \
+    make install && \
+    cd - && \
+    rm -rf qemu && \
+    echo "qemu-utils build completed"
+
+RUN echo "=== Installing IPMI Tool ===" && \
+    mkdir -p ipmitool && \
+    cd ipmitool && \
+    wget --no-check-certificate --timeout=30 --tries=3 -q https://github.com/ipmitool/ipmitool/archive/refs/tags/IPMITOOL_1_8_19.tar.gz -O- | tar -xz --strip-components 1 && \
+    ./bootstrap && \
+    ./configure --prefix=/tmp/ipmitool/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    cd - && \
+    rm -rf ipmitool && \
+    echo "ipmitool build completed"
 
 # Download and build IPA (optional - may fail due to network/ssl issues)
 RUN echo "=== Attempting to download and build IPA ===" && \
@@ -766,6 +678,7 @@ FROM tinycore-extractor AS final-extractor
 
 # Copy build_files for final requirements
 COPY build_files/${TARGETARCH}/finalreqs.lst /requirements.lst
+COPY build_files/${TARGETARCH}/fakeuname /bin/uname
 
 # Extract final requirements packages
 RUN set -eux; \
@@ -873,6 +786,13 @@ RUN cd /tcz-packages && \
             # Extract the squashfs first
             if unsquashfs -f -d /final-extracted "${tcz}" >/dev/null 2>&1; then \
                 echo "Successfully extracted ${tcz}"; \
+                # Extract any nested tar.gz archives like common.sh does
+                for f in "/final-extracted/usr/local/share/${package_name}"/*/*.tar.gz; do \
+                    if [ -f "${f}" ]; then \
+                        echo "Extracting additional archive ${f} for ${package_name}"; \
+                        tar -xzf "${f}" -C /final-extracted/ 2>/dev/null || true; \
+                    fi; \
+                done; \
                 \
                 # Special handling for Python packages - create symlinks
                 if echo "${package_name}" | grep -q "python3"; then \
@@ -917,10 +837,10 @@ COPY --from=final-extractor /final-extracted /
 RUN mkdir -p /tmp/wheelhouse /tmp/ipa-source
 
 # Copy any built tools that exist (will be empty directories if builds failed)
-COPY --from=tinyipa-build /tmp/qemu-utils/* /
+COPY --from=tinyipa-build /tmp/qemu-utils /
 COPY --from=tinyipa-build /tmp/lshw-installed/* /
 # COPY --from=tinyipa-build /tmp/biosdevname-installed /tmp/biosdevname-installed/
-COPY --from=tinyipa-build /tmp/ipmitool/* /
+COPY --from=tinyipa-build /tmp/ipmitool /
 COPY --from=tinyipa-build /tmp/wheels /tmp/wheelhouse/
 COPY --from=tinyipa-build /tmp/ipa-source /tmp/ipa-source/
 
@@ -936,34 +856,6 @@ RUN echo "=== Setting up final TinyIPA environment ===" && \
     echo "/usr/local/lib" >> /etc/ld.so.conf && \
     ldconfig && \
     echo "Updated ldconfig cache" && \
-    \
-    # Install built tools if they exist
-    echo "Installing built tools..." && \
-    if [ "$(ls -A /tmp/qemu-utils 2>/dev/null)" ]; then \
-        cp -r /tmp/qemu-utils/* /; \
-        echo "Installed qemu-utils"; \
-    else \
-        echo "No qemu-utils to install"; \
-    fi && \
-    if [ "$(ls -A /tmp/lshw-installed 2>/dev/null)" ]; then \
-        cp -r /tmp/lshw-installed/* /; \
-        echo "Installed lshw"; \
-    else \
-        echo "No lshw to install"; \
-    fi && \
-    if [ "$(ls -A /tmp/biosdevname-installed 2>/dev/null)" ]; then \
-        cp -r /tmp/biosdevname-installed/* /; \
-        echo "Installed biosdevname"; \
-    else \
-        echo "No biosdevname to install"; \
-    fi && \
-    if [ "$(ls -A /tmp/ipmitool 2>/dev/null)" ]; then \
-        cp -r /tmp/ipmitool/* /; \
-        echo "Installed ipmitool"; \
-    else \
-        echo "No ipmitool to install"; \
-    fi && \
-    \
     # Set up Python environment
     PIP_EXE="" && \
     echo "Searching for Python executable..." && \
